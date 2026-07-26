@@ -1,3 +1,5 @@
+import { LocalSileroVad, SILERO_VAD_VERSION } from "./silero-vad.js";
+
 const elements = {
   stage: document.querySelector("#stage"),
   connectButton: document.querySelector("#connectButton"),
@@ -67,8 +69,14 @@ const state = {
   localVadSilenceStartedAt: null,
   localVadBlocked: false,
   localVadNoiseFloor: 0.004,
+  localVadProbability: 0,
   localVadPreRoll: [],
   localVadResumeTimer: null,
+  localSileroVad: null,
+  localSileroVadPromise: null,
+  localSileroVadFailed: false,
+  localVadQueue: Promise.resolve(),
+  localVadGeneration: 0,
   holdToTalkActive: false,
   holdToTalkGeneration: 0,
   holdToTalkChunks: 0,
@@ -294,7 +302,7 @@ async function loadHealth() {
   );
   state.playbackOwner = data.playback_owner || "browser";
   const usesArk = state.clientConfig.chat_backend === "ark";
-  elements.modeMetric.textContent = usesArk ? "ARK · ONLINE" : data.upstream_mode;
+  updateModeMetric();
   elements.avatarMetric.textContent = `${data.avatar_backend} / ${data.avatar_renderer}`;
   elements.playbackMetric.textContent = state.playbackOwner === "renderer" ? "视频内音轨" : "浏览器 PCM";
   elements.personaTitle.textContent = state.clientConfig.persona_name;
@@ -302,6 +310,54 @@ async function loadHealth() {
     ? "语音识别与合成在本机处理 · 对话文本发送至 Ark"
     : "语音与对话在本机处理";
   updateControlLabels();
+  if (state.upstreamMode === "omlx") {
+    void ensureLocalSileroVad();
+  }
+}
+
+function updateModeMetric() {
+  const usesArk = state.clientConfig.chat_backend === "ark";
+  const inferenceMode = usesArk ? "ARK · ONLINE" : state.upstreamMode;
+  if (state.upstreamMode !== "omlx") {
+    elements.modeMetric.textContent = inferenceMode;
+    return;
+  }
+  const vadMode = state.localSileroVad
+    ? `SILERO V${SILERO_VAD_VERSION}`
+    : state.localSileroVadFailed
+      ? "RMS 回退"
+      : "VAD 加载中";
+  elements.modeMetric.textContent = `${inferenceMode} · ${vadMode}`;
+}
+
+function markSileroVadUnavailable(error) {
+  if (!state.localSileroVadFailed) {
+    console.warn("Silero VAD unavailable; falling back to RMS energy detection.", error);
+  }
+  state.localSileroVad = null;
+  state.localSileroVadFailed = true;
+  updateModeMetric();
+}
+
+async function ensureLocalSileroVad() {
+  if (state.localSileroVad) return state.localSileroVad;
+  if (state.localSileroVadFailed) return null;
+  if (!state.localSileroVadPromise) {
+    state.localSileroVadPromise = LocalSileroVad.create()
+      .then((vad) => {
+        state.localSileroVad = vad;
+        updateModeMetric();
+        return vad;
+      })
+      .catch((error) => {
+        markSileroVadUnavailable(error);
+        return null;
+      })
+      .finally(() => {
+        state.localSileroVadPromise = null;
+      });
+  }
+  return state.localSileroVadPromise;
 }
 
 function websocketUrl() {
@@ -759,12 +815,147 @@ function arrayBufferToBase64(buffer) {
   return btoa(binary);
 }
 
+function sileroThresholds(assistantActive) {
+  const presets = {
+    high: { start: 0.42, end: 0.26 },
+    auto: { start: 0.52, end: 0.32 },
+    low: { start: 0.62, end: 0.4 },
+  };
+  const selected = presets[state.clientConfig.vad_eagerness] || presets.auto;
+  if (!assistantActive) return selected;
+  return {
+    start: Math.min(0.86, selected.start + 0.16),
+    end: Math.min(0.72, selected.end + 0.12),
+  };
+}
+
+function processLocalVadChunk(samples, audio, probabilities) {
+  if (state.localVadBlocked || !state.micActive) return;
+  const assistantActive = assistantIsActive();
+  if (assistantActive && !state.clientConfig.barge_in_enabled) return;
+
+  let energy = 0;
+  for (const sample of samples) {
+    energy += sample * sample;
+  }
+  const rms = Math.sqrt(energy / Math.max(samples.length, 1));
+  const now = performance.now();
+
+  if (!state.localVadSpeaking) {
+    if (!assistantActive) {
+      state.localVadNoiseFloor =
+        state.localVadNoiseFloor * 0.95 + Math.min(rms, 0.02) * 0.05;
+    }
+    state.localVadPreRoll.push(audio);
+    if (state.localVadPreRoll.length > 8) state.localVadPreRoll.shift();
+  }
+
+  let speechDetected;
+  if (probabilities?.length) {
+    const latestProbability = probabilities[probabilities.length - 1];
+    const peakProbability = Math.max(...probabilities);
+    state.localVadProbability = latestProbability;
+    const thresholds = sileroThresholds(assistantActive);
+    speechDetected = state.localVadSpeaking
+      ? latestProbability >= thresholds.end
+      : peakProbability >= thresholds.start;
+  } else {
+    const speechThreshold = assistantActive
+      ? Math.max(0.026, state.localVadNoiseFloor * 4.5)
+      : Math.max(0.012, state.localVadNoiseFloor * 3);
+    speechDetected = rms >= speechThreshold;
+  }
+
+  if (speechDetected) {
+    if (!state.localVadSpeaking) {
+      const preRoll = [...state.localVadPreRoll];
+      state.localVadSpeaking = true;
+      state.localVadBargeIn = assistantActive;
+      state.localVadSpeechStartedAt = now;
+      for (const chunk of preRoll) {
+        send({
+          type: assistantActive
+            ? "input_audio_buffer.barge_in.append"
+            : "input_audio_buffer.append",
+          audio: chunk,
+        });
+      }
+      state.localVadPreRoll = [];
+      elements.userTranscript.textContent = assistantActive
+        ? "Silero 听到插话了，继续说…"
+        : "Silero 听到了，继续说…";
+    } else {
+      send({
+        type: state.localVadBargeIn
+          ? "input_audio_buffer.barge_in.append"
+          : "input_audio_buffer.append",
+        audio,
+      });
+    }
+    state.localVadSilenceStartedAt = null;
+    return;
+  }
+
+  if (!state.localVadSpeaking) return;
+  send({
+    type: state.localVadBargeIn
+      ? "input_audio_buffer.barge_in.append"
+      : "input_audio_buffer.append",
+    audio,
+  });
+  state.localVadSilenceStartedAt ??= now;
+  const speechDuration = now - (state.localVadSpeechStartedAt || now);
+  if (speechDuration >= 250 && now - state.localVadSilenceStartedAt >= 800) {
+    const isBargeIn = state.localVadBargeIn;
+    resetLocalVad();
+    state.localVadBlocked = true;
+    state.localVadBargeInChecking = isBargeIn;
+    elements.userTranscript.textContent = isBargeIn
+      ? "正在区分你的插话与回声…"
+      : "正在本机识别…";
+    send({
+      type: isBargeIn
+        ? "input_audio_buffer.barge_in.commit"
+        : "input_audio_buffer.commit",
+    });
+  }
+}
+
+function queueLocalVadChunk(samples, audio) {
+  const generation = state.localVadGeneration;
+  state.localVadQueue = state.localVadQueue
+    .catch(() => {})
+    .then(async () => {
+      if (!state.micActive || generation !== state.localVadGeneration) return;
+      let probabilities = null;
+      if (state.localSileroVad) {
+        try {
+          probabilities = await state.localSileroVad.process(
+            samples,
+            state.audioContext.sampleRate,
+          );
+        } catch (error) {
+          markSileroVadUnavailable(error);
+        }
+      }
+      if (!state.micActive || generation !== state.localVadGeneration) return;
+      processLocalVadChunk(samples, audio, probabilities);
+    });
+}
+
 function resetLocalVad() {
+  state.localVadGeneration += 1;
   state.localVadSpeaking = false;
   state.localVadBargeIn = false;
   state.localVadSpeechStartedAt = null;
   state.localVadSilenceStartedAt = null;
+  state.localVadProbability = 0;
   state.localVadPreRoll = [];
+  if (state.localSileroVad) {
+    state.localVadQueue = state.localVadQueue
+      .catch(() => {})
+      .then(() => state.localSileroVad?.reset());
+  }
 }
 
 function resumeLocalVadNow() {
@@ -857,6 +1048,9 @@ async function startMicrophone() {
     await state.audioContext.audioWorklet.addModule("/pcm-worklet.js");
     state.audioWorkletLoaded = true;
   }
+  if (state.upstreamMode === "omlx" && !state.holdToTalkActive) {
+    await ensureLocalSileroVad();
+  }
 
   state.micStream = await navigator.mediaDevices.getUserMedia({
     audio: {
@@ -876,12 +1070,6 @@ async function startMicrophone() {
     const pcm = floatToPcm16(event.data);
     const audio = arrayBufferToBase64(pcm.buffer);
     if (state.upstreamMode === "omlx") {
-      let energy = 0;
-      for (const sample of event.data) {
-        energy += sample * sample;
-      }
-      const rms = Math.sqrt(energy / Math.max(event.data.length, 1));
-      const now = performance.now();
       if (state.localVadBlocked) return;
       if (state.holdToTalkActive) {
         send({ type: "input_audio_buffer.append", audio });
@@ -889,71 +1077,7 @@ async function startMicrophone() {
         elements.userTranscript.textContent = "正在录音，松开发送…";
         return;
       }
-      const assistantActive = assistantIsActive();
-      if (assistantActive && !state.clientConfig.barge_in_enabled) return;
-
-      if (!state.localVadSpeaking) {
-        if (!assistantActive) {
-          state.localVadNoiseFloor =
-            state.localVadNoiseFloor * 0.95 + Math.min(rms, 0.02) * 0.05;
-        }
-        state.localVadPreRoll.push(audio);
-        if (state.localVadPreRoll.length > 8) state.localVadPreRoll.shift();
-      }
-      const speechThreshold = assistantActive
-        ? Math.max(0.026, state.localVadNoiseFloor * 4.5)
-        : Math.max(0.012, state.localVadNoiseFloor * 3);
-      if (rms >= speechThreshold) {
-        if (!state.localVadSpeaking) {
-          const preRoll = [...state.localVadPreRoll];
-          state.localVadSpeaking = true;
-          state.localVadBargeIn = assistantActive;
-          state.localVadSpeechStartedAt = now;
-          for (const chunk of preRoll) {
-            send({
-              type: assistantActive
-                ? "input_audio_buffer.barge_in.append"
-                : "input_audio_buffer.append",
-              audio: chunk,
-            });
-          }
-          state.localVadPreRoll = [];
-          elements.userTranscript.textContent = assistantActive
-            ? "听到插话了，继续说…"
-            : "听到了，继续说…";
-        } else {
-          send({
-            type: state.localVadBargeIn
-              ? "input_audio_buffer.barge_in.append"
-              : "input_audio_buffer.append",
-            audio,
-          });
-        }
-        state.localVadSilenceStartedAt = null;
-      } else if (state.localVadSpeaking) {
-        send({
-          type: state.localVadBargeIn
-            ? "input_audio_buffer.barge_in.append"
-            : "input_audio_buffer.append",
-          audio,
-        });
-        state.localVadSilenceStartedAt ??= now;
-        const speechDuration = now - (state.localVadSpeechStartedAt || now);
-        if (speechDuration >= 250 && now - state.localVadSilenceStartedAt >= 800) {
-          const isBargeIn = state.localVadBargeIn;
-          resetLocalVad();
-          state.localVadBlocked = true;
-          state.localVadBargeInChecking = isBargeIn;
-          elements.userTranscript.textContent = isBargeIn
-            ? "正在区分你的插话与回声…"
-            : "正在本机识别…";
-          send({
-            type: isBargeIn
-              ? "input_audio_buffer.barge_in.commit"
-              : "input_audio_buffer.commit",
-          });
-        }
-      }
+      queueLocalVadChunk(event.data, audio);
     } else {
       send({ type: "input_audio_buffer.append", audio });
     }
@@ -969,7 +1093,9 @@ async function startMicrophone() {
     true,
     state.holdToTalkActive ? "按住聆听中" : "会话已就绪 · 自动聆听",
   );
-  elements.userTranscript.textContent = "正在聆听…";
+  elements.userTranscript.textContent = state.localSileroVad
+    ? `正在聆听（Silero VAD ${SILERO_VAD_VERSION}）…`
+    : "正在聆听（RMS 回退）…";
 }
 
 async function toggleMicrophone() {
