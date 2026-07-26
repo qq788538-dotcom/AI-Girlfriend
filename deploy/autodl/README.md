@@ -48,3 +48,21 @@ bash /root/AI-Girlfriend/deploy/autodl/autostart.sh
 
 The script is idempotent, waits for the GPU, writes
 `runtime/autodl/autostart.log`, and does not start duplicate processes.
+
+## SoulX-LiveAct test mode
+
+For a single RTX 4090/5090, the optional LiveAct path follows the official
+memory-saving flags (`--fp8_kv_cache --block_offload --t5_cpu`). The official
+Flask demo is launched through `liveact_demo_launcher.py`, which forces its
+listener to `127.0.0.1:5001`. The protocol wrapper also remains loopback-only
+on `127.0.0.1:8772`.
+
+```bash
+deploy/autodl/liveact-control.sh start
+deploy/autodl/liveact-control.sh status
+deploy/autodl/liveact-control.sh logs
+```
+
+The web UI serves a pinned local HLS.js bundle for Chromium playback and keeps
+the completed MP4 as a fallback. LiveAct model weights and generated videos
+remain on the AutoDL data disk and are not committed to Git.
