@@ -58,6 +58,11 @@ listener to `127.0.0.1:5001`. On one GPU it runs directly without a distributed
 rendezvous port. The protocol wrapper also remains loopback-only on
 `127.0.0.1:8772`.
 
+The launcher defaults to the PyTorch SDPA compatibility backend
+(`VH_LIVEACT_FORCE_SDPA=1`). This avoids binary FlashAttention/GLIBC coupling
+on AutoDL images while keeping all inference local. Set the variable to `0`
+only after a native FlashAttention build has been validated on the target GPU.
+
 ```bash
 deploy/autodl/liveact-control.sh start
 deploy/autodl/liveact-control.sh status

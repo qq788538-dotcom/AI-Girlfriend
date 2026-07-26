@@ -86,6 +86,7 @@ start_services() {
         cd "$LIVEACT_DIR"
         nohup env \
             VH_AUTODL_PROJECT_DIR="$PROJECT_DIR" \
+            VH_LIVEACT_FORCE_SDPA="${VH_LIVEACT_FORCE_SDPA:-1}" \
             USE_CHANNELS_LAST_3D=1 \
             CUDA_VISIBLE_DEVICES=0 \
             "$LIVEACT_VENV/bin/python" \

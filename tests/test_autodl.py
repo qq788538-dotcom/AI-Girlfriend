@@ -24,3 +24,13 @@ def test_autodl_control_reuses_the_locked_xiangongyun_runtime() -> None:
     assert "flock -n 9" in autostart
     assert "deploy/autodl/control.sh status" in autostart
     assert "deploy/autodl/control.sh start" in autostart
+
+
+def test_liveact_can_force_the_pytorch_sdpa_compatibility_backend() -> None:
+    control = (AUTODL / "liveact-control.sh").read_text(encoding="utf-8")
+    launcher = (AUTODL / "liveact_demo_launcher.py").read_text(encoding="utf-8")
+
+    assert 'VH_LIVEACT_FORCE_SDPA="${VH_LIVEACT_FORCE_SDPA:-1}"' in control
+    assert 'sys.modules["flash_attn"] = None' in launcher
+    assert "scaled_dot_product_attention" in launcher
+    assert "attention_module.flash_attention = sdpa_attention" in launcher
