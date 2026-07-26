@@ -62,7 +62,11 @@ VH_OMLX_TTS_TEMPERATURE=0.86
 网关会直接读取现有 oMLX 配置中的本机 API key，不需要把密钥复制进项目。
 使用 oMLX 0.5.3 或更高版本；网关会请求原生流式 TTS，每生成 40ms PCM
 就立即送往画面渲染器，而不是等待整段 WAV 完成。
-浏览器麦克风采用按键说话：再次点击结束录音后，本机依次执行
+浏览器麦克风支持按住说话和自动聆听。自动聆听使用随网页自托管的 Silero VAD v6.2
+ONNX 模型，在浏览器内按 32ms 概率帧判断语音起止；模型和 ONNX Runtime WASM 都从
+`public/vendor/` 本地加载，不调用第三方 VAD 服务。语音概率按 `VH_VAD_EAGERNESS`
+选择双阈值，人物播放期间自动提高插话阈值；模型初始化或推理异常时会明确回退到 RMS
+能量判定。一次说话结束后，本机依次执行
 `Qwen3-ASR → Qwen3.5 → Higgs TTS 3`，生成的 PCM 再送给云端 FlashHead 做口型。
 因此云端不需要同时加载 ASR、LLM 或 TTS。
 

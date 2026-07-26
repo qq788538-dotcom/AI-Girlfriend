@@ -70,7 +70,10 @@ def test_two_controls_support_toggle_and_hold_to_talk() -> None:
     assert '"input_audio_buffer.barge_in.append"' in javascript
     assert '"input_audio_buffer.barge_in.commit"' in javascript
     assert '"input_audio_buffer.barge_in.echo_ignored"' in javascript
-    assert '"听到插话了，继续说…"' in javascript
+    assert 'import { LocalSileroVad, SILERO_VAD_VERSION } from "./silero-vad.js"' in javascript
+    assert "await state.localSileroVad.process(" in javascript
+    assert "function sileroThresholds(assistantActive)" in javascript
+    assert '"Silero 听到插话了，继续说…"' in javascript
     assert "Math.max(0.026, state.localVadNoiseFloor * 4.5)" in javascript
     assert 'type: "response.create"' not in javascript
 
@@ -81,7 +84,7 @@ def test_right_cloud_avatar_button_persists_and_reconnects_mode() -> None:
 
     assert 'id="cloudAvatarButton"' in html
     assert 'id="cloudButtonStatus"' in html
-    assert 'src="/app.js?v=19"' in html
+    assert 'src="/app.js?v=20"' in html
     assert 'href="/styles.css?v=10"' in html
     assert 'localStorage.getItem("cloudAvatarEnabled")' in javascript
     assert 'localStorage.setItem("cloudAvatarEnabled"' in javascript
@@ -113,7 +116,7 @@ def test_cloud_renderer_failure_switches_to_browser_audio() -> None:
     html = (PUBLIC / "index.html").read_text(encoding="utf-8")
     javascript = (PUBLIC / "app.js").read_text(encoding="utf-8")
 
-    assert 'src="/app.js?v=19"' in html
+    assert 'src="/app.js?v=20"' in html
     assert 'case "avatar.fallback":' in javascript
     assert 'state.playbackOwner = "browser"' in javascript
     assert 'elements.playbackMetric.textContent = "浏览器 PCM"' in javascript
@@ -138,3 +141,26 @@ def test_browser_pcm_uses_preroll_and_waits_for_actual_playback_end() -> None:
     assert "leadSeconds = state.browserPcmPrimed" in javascript
     assert "state.sources.size === 0" in javascript
     assert "state.sources.size > 0" in javascript
+
+
+def test_local_silero_vad_assets_are_vendored_and_wired() -> None:
+    javascript = (PUBLIC / "app.js").read_text(encoding="utf-8")
+    vad_module = (PUBLIC / "silero-vad.js").read_text(encoding="utf-8")
+    model = PUBLIC / "vendor" / "silero-vad-v6.2" / "silero_vad.onnx"
+    ort_module = (
+        PUBLIC / "vendor" / "onnxruntime-web-1.22.0" / "ort.wasm.min.mjs"
+    )
+    ort_wasm = (
+        PUBLIC
+        / "vendor"
+        / "onnxruntime-web-1.22.0"
+        / "ort-wasm-simd-threaded.wasm"
+    )
+
+    assert model.is_file() and model.stat().st_size > 2_000_000
+    assert ort_module.is_file() and ort_module.stat().st_size > 40_000
+    assert ort_wasm.is_file() and ort_wasm.stat().st_size > 10_000_000
+    assert 'from "./silero-vad.js"' in javascript
+    assert "LocalSileroVad.create()" in javascript
+    assert 'const MODEL_URL = "/vendor/silero-vad-v6.2/silero_vad.onnx"' in vad_module
+    assert 'executionProviders: ["wasm"]' in vad_module
