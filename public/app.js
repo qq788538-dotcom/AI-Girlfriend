@@ -68,6 +68,9 @@ const state = {
   localVadBlocked: false,
   localVadNoiseFloor: 0.004,
   localVadProbability: 0,
+  localVadRms: 0,
+  localVadEnergySpeechMs: 0,
+  localVadTrigger: "none",
   localVadPreRoll: [],
   localVadResumeTimer: null,
   localSileroVad: null,
@@ -765,9 +768,9 @@ function arrayBufferToBase64(buffer) {
 
 function sileroThresholds(assistantActive) {
   const presets = {
-    high: { start: 0.42, end: 0.26 },
-    auto: { start: 0.52, end: 0.32 },
-    low: { start: 0.62, end: 0.4 },
+    high: { start: 0.35, end: 0.18 },
+    auto: { start: 0.45, end: 0.25 },
+    low: { start: 0.58, end: 0.35 },
   };
   const selected = presets[state.clientConfig.vad_eagerness] || presets.auto;
   if (!assistantActive) return selected;
@@ -788,6 +791,10 @@ function processLocalVadChunk(samples, audio, probabilities) {
   }
   const rms = Math.sqrt(energy / Math.max(samples.length, 1));
   const now = performance.now();
+  const chunkDurationMs =
+    (samples.length / Math.max(state.audioContext?.sampleRate || state.sampleRate, 1)) *
+    1000;
+  state.localVadRms = rms;
 
   if (!state.localVadSpeaking) {
     if (!assistantActive) {
@@ -798,21 +805,44 @@ function processLocalVadChunk(samples, audio, probabilities) {
     if (state.localVadPreRoll.length > 8) state.localVadPreRoll.shift();
   }
 
-  let speechDetected;
+  const thresholds = sileroThresholds(assistantActive);
+  const energyStartThreshold = assistantActive
+    ? Math.max(0.024, state.localVadNoiseFloor * 4.5)
+    : Math.max(0.009, state.localVadNoiseFloor * 2.5);
+  const energyEndThreshold = assistantActive
+    ? Math.max(0.016, state.localVadNoiseFloor * 3.2)
+    : Math.max(0.006, state.localVadNoiseFloor * 1.7);
+  const energyDetected =
+    rms >= (state.localVadSpeaking ? energyEndThreshold : energyStartThreshold);
+
+  if (!state.localVadSpeaking) {
+    state.localVadEnergySpeechMs = energyDetected
+      ? state.localVadEnergySpeechMs + chunkDurationMs
+      : 0;
+  }
+
+  let sileroDetected = false;
   if (probabilities?.length) {
     const latestProbability = probabilities[probabilities.length - 1];
     const peakProbability = Math.max(...probabilities);
     state.localVadProbability = latestProbability;
-    const thresholds = sileroThresholds(assistantActive);
-    speechDetected = state.localVadSpeaking
+    sileroDetected = state.localVadSpeaking
       ? latestProbability >= thresholds.end
       : peakProbability >= thresholds.start;
-  } else {
-    const speechThreshold = assistantActive
-      ? Math.max(0.026, state.localVadNoiseFloor * 4.5)
-      : Math.max(0.012, state.localVadNoiseFloor * 3);
-    speechDetected = rms >= speechThreshold;
   }
+  const energyRescueDetected = state.localVadSpeaking
+    ? energyDetected
+    : state.localVadEnergySpeechMs >= 120;
+  const speechDetected = sileroDetected || energyRescueDetected;
+  state.localVadTrigger = sileroDetected
+    ? "silero"
+    : energyRescueDetected
+      ? "energy-rescue"
+      : "none";
+  elements.stage.dataset.vadProbability = state.localVadProbability.toFixed(4);
+  elements.stage.dataset.vadRms = rms.toFixed(5);
+  elements.stage.dataset.vadNoiseFloor = state.localVadNoiseFloor.toFixed(5);
+  elements.stage.dataset.vadTrigger = state.localVadTrigger;
 
   if (speechDetected) {
     if (!state.localVadSpeaking) {
@@ -898,6 +928,9 @@ function resetLocalVad() {
   state.localVadSpeechStartedAt = null;
   state.localVadSilenceStartedAt = null;
   state.localVadProbability = 0;
+  state.localVadRms = 0;
+  state.localVadEnergySpeechMs = 0;
+  state.localVadTrigger = "none";
   state.localVadPreRoll = [];
   if (state.localSileroVad) {
     state.localVadQueue = state.localVadQueue
