@@ -33,9 +33,13 @@ def test_realtime_ui_keeps_required_dom_hooks() -> None:
 
 def test_hls_player_is_pinned_and_served_locally() -> None:
     html = (PUBLIC / "index.html").read_text(encoding="utf-8")
+    javascript = (PUBLIC / "app.js").read_text(encoding="utf-8")
     hls_bundle = (PUBLIC / "hls.min.js").read_bytes()
 
-    assert 'src="/hls.min.js?v=1.6.16"' in html
+    assert 'src="/hls.min.js?v=1.6.16"' not in html
+    assert 'const HLS_LIBRARY_URL = "/hls.min.js?v=1.6.16"' in javascript
+    assert "function ensureHlsLibrary()" in javascript
+    assert "void startHlsJsPlayback(event)" in javascript
     assert hashlib.sha256(hls_bundle).hexdigest() == (
         "442f599c34f103c3355b375a23bdff560592d7117d09a8c847242ea3de2d40e0"
     )
@@ -85,7 +89,7 @@ def test_two_controls_support_toggle_and_hold_to_talk() -> None:
     assert '"input_audio_buffer.barge_in.append"' in javascript
     assert '"input_audio_buffer.barge_in.commit"' in javascript
     assert '"input_audio_buffer.barge_in.echo_ignored"' in javascript
-    assert 'import { LocalSileroVad, SILERO_VAD_VERSION } from "./silero-vad.js"' in javascript
+    assert 'import("./silero-vad.js")' in javascript
     assert "await state.localSileroVad.process(" in javascript
     assert "function sileroThresholds(assistantActive)" in javascript
     assert '"Silero 听到插话了，继续说…"' in javascript
@@ -102,9 +106,9 @@ def test_right_cloud_avatar_button_persists_and_reconnects_mode() -> None:
 
     assert 'id="cloudAvatarButton"' in html
     assert 'id="cloudButtonStatus"' in html
-    assert 'src="/app.js?v=25"' in html
-    assert 'src="/hls.min.js?v=1.6.16"' in html
-    assert 'href="/styles.css?v=10"' in html
+    assert 'src="/app.js?v=26"' in html
+    assert 'src="/hls.min.js?v=1.6.16"' not in html
+    assert 'href="/styles.css?v=11"' in html
     assert 'localStorage.getItem("cloudAvatarEnabled")' in javascript
     assert 'localStorage.setItem("cloudAvatarEnabled"' in javascript
     assert 'elements.cloudAvatarButton.addEventListener("click", toggleCloudAvatar)' in javascript
@@ -129,7 +133,7 @@ def test_avatar_stream_keeps_static_portrait_until_first_video_frame() -> None:
     assert ".avatar-frame.video-ready #avatarImage" in css
     assert ".avatar-frame.video-ready #avatarImage" in css
     assert "opacity 180ms ease" in css
-    assert "window.Hls?.isSupported()" in javascript
+    assert "Hls.isSupported()" in javascript
     assert "liveSyncDurationCount: 2" in javascript
     assert "hlsFinalVideoEvent" in javascript
     assert "failHlsPlayback" in javascript
@@ -147,7 +151,7 @@ def test_cloud_renderer_failure_switches_to_browser_audio() -> None:
     html = (PUBLIC / "index.html").read_text(encoding="utf-8")
     javascript = (PUBLIC / "app.js").read_text(encoding="utf-8")
 
-    assert 'src="/app.js?v=25"' in html
+    assert 'src="/app.js?v=26"' in html
     assert 'case "avatar.fallback":' in javascript
     assert 'state.playbackOwner = "browser"' in javascript
     assert 'elements.playbackMetric.textContent = "浏览器 PCM"' in javascript
@@ -191,7 +195,33 @@ def test_local_silero_vad_assets_are_vendored_and_wired() -> None:
     assert model.is_file() and model.stat().st_size > 2_000_000
     assert ort_module.is_file() and ort_module.stat().st_size > 40_000
     assert ort_wasm.is_file() and ort_wasm.stat().st_size > 10_000_000
-    assert 'from "./silero-vad.js"' in javascript
+    assert 'import("./silero-vad.js")' in javascript
     assert "LocalSileroVad.create()" in javascript
     assert 'const MODEL_URL = "/vendor/silero-vad-v6.2/silero_vad.onnx"' in vad_module
     assert 'executionProviders: ["wasm"]' in vad_module
+
+
+def test_browser_hot_paths_avoid_eager_models_and_audio_array_churn() -> None:
+    html = (PUBLIC / "index.html").read_text(encoding="utf-8")
+    javascript = (PUBLIC / "app.js").read_text(encoding="utf-8")
+    worklet = (PUBLIC / "pcm-worklet.js").read_text(encoding="utf-8")
+    css = (PUBLIC / "styles.css").read_text(encoding="utf-8")
+
+    assert 'rel="preload" href="/avatar-ai-girlfriend-v6.png"' in html
+    assert 'fetchpriority="high"' in html
+    assert "void ensureLocalSileroVad();" not in javascript
+    assert 'import("./silero-vad.js")' in javascript
+    assert "progressive: true" in javascript
+    assert "enableWorker: true" in javascript
+    assert "maxBufferLength: 6" in javascript
+    assert "backBufferLength: 4" in javascript
+    assert "cursorLastRevealAt" in javascript
+    assert "this.buffer = []" not in worklet
+    assert "this.buffer.push" not in worklet
+    assert "this.buffer.splice" not in worklet
+    assert "this.chunk = new Float32Array(this.targetSamples)" in worklet
+    assert "this.chunk.set(" in worklet
+    assert ".avatar-video {" in css
+    assert "filter: none;" in css
+    assert "transform: none;" in css
+    assert ".avatar-frame.video-ready .portrait-light" in css

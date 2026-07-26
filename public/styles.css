@@ -150,6 +150,9 @@ button {
   height: 100%;
   object-fit: cover;
   object-position: center 44%;
+}
+
+.avatar-frame img {
   filter: saturate(0.96) contrast(1.06) brightness(0.94);
   transform: scale(1.045);
   transition:
@@ -170,10 +173,11 @@ button {
   z-index: 1;
   opacity: 0;
   background: transparent;
-  transition:
-    opacity 180ms ease,
-    filter 800ms ease,
-    transform 1.8s cubic-bezier(0.2, 0.65, 0.25, 1);
+  contain: paint;
+  filter: none;
+  transform: none;
+  will-change: opacity;
+  transition: opacity 180ms ease;
 }
 
 .avatar-video.is-visible {
@@ -182,6 +186,11 @@ button {
 
 .avatar-frame.video-ready #avatarImage {
   opacity: 0;
+  animation-play-state: paused;
+}
+
+.avatar-frame.video-ready .portrait-light {
+  animation-play-state: paused;
 }
 
 .avatar-video[hidden] {

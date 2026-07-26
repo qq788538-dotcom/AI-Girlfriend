@@ -1,4 +1,5 @@
-import { LocalSileroVad, SILERO_VAD_VERSION } from "./silero-vad.js";
+const SILERO_VAD_VERSION = "6.2";
+const HLS_LIBRARY_URL = "/hls.min.js?v=1.6.16";
 
 const elements = {
   stage: document.querySelector("#stage"),
@@ -62,6 +63,7 @@ const state = {
   hlsFailed: false,
   hlsEnded: false,
   hlsWatchdogTimer: null,
+  hlsLibraryPromise: null,
   segmentFallbackQueue: [],
   avatarVideoGeneration: 0,
   avatarVideoFramePending: false,
@@ -82,12 +84,14 @@ const state = {
   localSileroVad: null,
   localSileroVadPromise: null,
   localSileroVadFailed: false,
+  localSileroVadModulePromise: null,
   localVadQueue: Promise.resolve(),
   localVadGeneration: 0,
   holdToTalkActive: false,
   holdToTalkGeneration: 0,
   holdToTalkChunks: 0,
   cursorHideTimer: null,
+  cursorLastRevealAt: 0,
   responseStartedAt: null,
   firstAudioAt: null,
   firstAvatarAt: null,
@@ -114,6 +118,14 @@ const mediaSourceTypes = [
 ];
 
 function revealCursorTemporarily() {
+  const now = performance.now();
+  if (
+    !elements.stage.classList.contains("cursor-hidden") &&
+    now - state.cursorLastRevealAt < 80
+  ) {
+    return;
+  }
+  state.cursorLastRevealAt = now;
   elements.stage.classList.remove("cursor-hidden");
   if (state.cursorHideTimer !== null) {
     clearTimeout(state.cursorHideTimer);
@@ -319,9 +331,6 @@ async function loadHealth() {
     ? "语音识别与合成在本机处理 · 对话文本发送至 Ark"
     : "语音与对话在本机处理";
   updateControlLabels();
-  if (state.upstreamMode === "omlx") {
-    void ensureLocalSileroVad();
-  }
 }
 
 function updateModeMetric() {
@@ -335,7 +344,9 @@ function updateModeMetric() {
     ? `SILERO V${SILERO_VAD_VERSION}`
     : state.localSileroVadFailed
       ? "RMS 回退"
-      : "VAD 加载中";
+      : state.localSileroVadPromise
+        ? "VAD 加载中"
+        : "VAD 按需";
   elements.modeMetric.textContent = `${inferenceMode} · ${vadMode}`;
 }
 
@@ -352,7 +363,9 @@ async function ensureLocalSileroVad() {
   if (state.localSileroVad) return state.localSileroVad;
   if (state.localSileroVadFailed) return null;
   if (!state.localSileroVadPromise) {
-    state.localSileroVadPromise = LocalSileroVad.create()
+    state.localSileroVadModulePromise ||= import("./silero-vad.js");
+    state.localSileroVadPromise = state.localSileroVadModulePromise
+      .then(({ LocalSileroVad }) => LocalSileroVad.create())
       .then((vad) => {
         state.localSileroVad = vad;
         updateModeMetric();
@@ -365,6 +378,7 @@ async function ensureLocalSileroVad() {
       .finally(() => {
         state.localSileroVadPromise = null;
       });
+    updateModeMetric();
   }
   return state.localSileroVadPromise;
 }
@@ -584,26 +598,8 @@ function handleMessage(message) {
         elements.avatarVideo.play().catch(() => {
           elements.assistantTranscript.textContent = "浏览器阻止了有声视频自动播放，请点击画面继续。";
         });
-      } else if (window.Hls?.isSupported()) {
-        state.hls = new window.Hls({
-          lowLatencyMode: true,
-          liveSyncDurationCount: 2,
-          liveMaxLatencyDurationCount: 5,
-          backBufferLength: 30,
-        });
-        state.hls.on(window.Hls.Events.MANIFEST_PARSED, () => {
-          elements.avatarVideo.play().catch(() => {
-            elements.assistantTranscript.textContent = "浏览器阻止了有声视频自动播放，请点击画面继续。";
-          });
-        });
-        state.hls.on(window.Hls.Events.ERROR, (_event, data) => {
-          if (!data.fatal) return;
-          failHlsPlayback(`${data.type || "HLS"}: ${data.details || "fatal error"}`);
-        });
-        state.hls.loadSource(event.url);
-        state.hls.attachMedia(elements.avatarVideo);
       } else {
-        failHlsPlayback("当前浏览器不支持 HLS");
+        void startHlsJsPlayback(event);
       }
       break;
     }
@@ -1258,6 +1254,77 @@ function stopAssistantPlayback() {
 function interrupt() {
   send({ type: "response.cancel" });
   stopAssistantPlayback();
+}
+
+function ensureHlsLibrary() {
+  if (window.Hls) return Promise.resolve(window.Hls);
+  if (!state.hlsLibraryPromise) {
+    state.hlsLibraryPromise = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = HLS_LIBRARY_URL;
+      script.async = true;
+      script.dataset.runtime = "hls";
+      script.addEventListener(
+        "load",
+        () => {
+          if (window.Hls) {
+            resolve(window.Hls);
+          } else {
+            reject(new Error("HLS 库加载完成但未注册播放器"));
+          }
+        },
+        { once: true },
+      );
+      script.addEventListener(
+        "error",
+        () => reject(new Error("HLS 播放器加载失败")),
+        { once: true },
+      );
+      document.head.append(script);
+    }).catch((error) => {
+      state.hlsLibraryPromise = null;
+      throw error;
+    });
+  }
+  return state.hlsLibraryPromise;
+}
+
+async function startHlsJsPlayback(event) {
+  try {
+    const Hls = await ensureHlsLibrary();
+    if (
+      state.hlsResponseId !== event.response_id ||
+      state.hlsFailed ||
+      !Hls.isSupported()
+    ) {
+      if (!Hls.isSupported()) failHlsPlayback("当前浏览器不支持 HLS");
+      return;
+    }
+    state.hls = new Hls({
+      enableWorker: true,
+      progressive: true,
+      lowLatencyMode: true,
+      startFragPrefetch: true,
+      liveSyncDurationCount: 2,
+      liveMaxLatencyDurationCount: 5,
+      maxBufferLength: 6,
+      maxMaxBufferLength: 12,
+      backBufferLength: 4,
+    });
+    state.hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      elements.avatarVideo.play().catch(() => {
+        elements.assistantTranscript.textContent = "浏览器阻止了有声视频自动播放，请点击画面继续。";
+      });
+    });
+    state.hls.on(Hls.Events.ERROR, (_event, data) => {
+      if (!data.fatal) return;
+      failHlsPlayback(`${data.type || "HLS"}: ${data.details || "fatal error"}`);
+    });
+    state.hls.loadSource(event.url);
+    state.hls.attachMedia(elements.avatarVideo);
+  } catch (error) {
+    failHlsPlayback(error.message || error);
+  }
 }
 
 function setHlsStatus(status, label) {
