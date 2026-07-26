@@ -168,3 +168,8 @@ async def test_liveact_hls_proxy_keeps_stream_on_renderer_origin(
     assert requested_urls == ["http://127.0.0.1:5001/stream/task-1/live.m3u8"]
     assert response.body == b"#EXTM3U\n"
     assert response.media_type == "application/vnd.apple.mpegurl"
+
+    segment_response = await endpoint("task-1", "live0.ts")
+
+    assert requested_urls[-1] == "http://127.0.0.1:5001/stream/task-1/live0.ts"
+    assert segment_response.media_type == "video/mp2t"

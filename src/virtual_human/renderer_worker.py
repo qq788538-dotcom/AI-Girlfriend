@@ -560,10 +560,15 @@ def create_renderer_app(settings: RendererSettings | None = None) -> FastAPI:
             upstream = await client.get(
                 f"{renderer_settings.liveact_demo_url}/stream/{task_id}/{filename}"
             )
+        suffix = Path(filename).suffix.lower()
+        media_type = {
+            ".m3u8": "application/vnd.apple.mpegurl",
+            ".ts": "video/mp2t",
+        }.get(suffix, upstream.headers.get("content-type"))
         return Response(
             content=upstream.content,
             status_code=upstream.status_code,
-            media_type=upstream.headers.get("content-type"),
+            media_type=media_type,
             headers={"Cache-Control": upstream.headers.get("cache-control", "no-cache")},
         )
 
