@@ -44,7 +44,7 @@ stop_pid() {
 }
 
 require_installation() {
-    test -x "$LIVEACT_VENV/bin/torchrun"
+    test -x "$LIVEACT_VENV/bin/python"
     test -x "$PROJECT_DIR/.venv-gpu/bin/python"
     test -f "$MODEL_DIR/config.json"
     test -d "$WAV2VEC_DIR"
@@ -88,9 +88,7 @@ start_services() {
             VH_AUTODL_PROJECT_DIR="$PROJECT_DIR" \
             USE_CHANNELS_LAST_3D=1 \
             CUDA_VISIBLE_DEVICES=0 \
-            "$LIVEACT_VENV/bin/torchrun" \
-            --nproc_per_node=1 \
-            --master_port=29512 \
+            "$LIVEACT_VENV/bin/python" \
             "$PROJECT_DIR/deploy/autodl/liveact_demo_launcher.py" \
             --ckpt_dir "$MODEL_DIR" \
             --wav2vec_dir "$WAV2VEC_DIR" \

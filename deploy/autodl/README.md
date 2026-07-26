@@ -54,8 +54,9 @@ The script is idempotent, waits for the GPU, writes
 For a single RTX 4090/5090, the optional LiveAct path follows the official
 memory-saving flags (`--fp8_kv_cache --block_offload --t5_cpu`). The official
 Flask demo is launched through `liveact_demo_launcher.py`, which forces its
-listener to `127.0.0.1:5001`. The protocol wrapper also remains loopback-only
-on `127.0.0.1:8772`.
+listener to `127.0.0.1:5001`. On one GPU it runs directly without a distributed
+rendezvous port. The protocol wrapper also remains loopback-only on
+`127.0.0.1:8772`.
 
 ```bash
 deploy/autodl/liveact-control.sh start
