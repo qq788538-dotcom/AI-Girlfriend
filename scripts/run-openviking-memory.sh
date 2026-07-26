@@ -26,6 +26,8 @@ write_config() {
         embedding_dimension="${VH_MEMORY_EMBEDDING_DIMENSION:-1024}"
         llm_base="${VH_MEMORY_VLM_BASE_URL:-http://127.0.0.1:8000/v1}"
         llm_model="${VH_MEMORY_VLM_MODEL:-Qwen3.6-35B-A3B-AWQ}"
+        llm_max_tokens="${VH_MEMORY_VLM_MAX_TOKENS:-1024}"
+        llm_max_concurrent="${VH_MEMORY_VLM_MAX_CONCURRENT:-1}"
         case "$embedding_base" in
             http://127.0.0.1/*|http://127.0.0.1:*|http://localhost/*|http://localhost:*) ;;
             *)
@@ -47,6 +49,8 @@ write_config() {
             --argjson embedding_dimension "$embedding_dimension" \
             --arg llm_base "$llm_base" \
             --arg llm_model "$llm_model" \
+            --argjson llm_max_tokens "$llm_max_tokens" \
+            --argjson llm_max_concurrent "$llm_max_concurrent" \
             '{
                 storage: {
                     workspace: $workspace,
@@ -72,10 +76,16 @@ write_config() {
                     api_key: "local-offline",
                     model: $llm_model,
                     thinking: false,
-                    max_concurrent: 2,
+                    max_tokens: $llm_max_tokens,
+                    max_concurrent: $llm_max_concurrent,
                     max_retries: 1
                 },
-                memory: {version: "v2"},
+                memory: {
+                    version: "v3",
+                    eager_prefetch: true,
+                    session_skill_extraction_enabled: false,
+                    link_enabled: false
+                },
                 server: {auth_mode: "dev"}
             }' > "$config_file"
         chmod 600 "$config_file"

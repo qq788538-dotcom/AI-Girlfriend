@@ -11,6 +11,13 @@ logger = logging.getLogger(__name__)
 class OpenVikingMemory:
     """Fail-open client for the virtual girlfriend's isolated memory service."""
 
+    _SESSION_MEMORY_POLICY = {
+        "self": {"enabled": True},
+        "peer": {"enabled": False},
+        "memory_types": ["entities", "preferences", "events"],
+        "working_memory": {"enabled": False},
+    }
+
     def __init__(
         self,
         base_url: str,
@@ -28,6 +35,7 @@ class OpenVikingMemory:
         self.search_limit = search_limit
         self.score_threshold = score_threshold
         self.max_context_chars = max_context_chars
+        self._initialized_sessions: set[str] = set()
         self._client = httpx.AsyncClient(
             base_url=base_url.rstrip("/") + "/",
             headers=headers,
@@ -148,6 +156,17 @@ class OpenVikingMemory:
 
     async def record_turn(self, session_id: str, user_text: str, assistant_text: str) -> bool:
         try:
+            if session_id not in self._initialized_sessions:
+                create_response = await self._client.post(
+                    "api/v1/sessions",
+                    json={
+                        "session_id": session_id,
+                        "memory_policy": self._SESSION_MEMORY_POLICY,
+                    },
+                )
+                if create_response.status_code != 409:
+                    create_response.raise_for_status()
+                self._initialized_sessions.add(session_id)
             response = await self._client.post(
                 f"api/v1/sessions/{session_id}/messages/batch",
                 json={

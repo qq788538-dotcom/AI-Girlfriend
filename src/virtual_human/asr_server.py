@@ -9,6 +9,23 @@ from typing import Any, Protocol
 import uvicorn
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 
+_QWEN_LANGUAGE_ALIASES = {
+    "zh": "Chinese",
+    "zh-cn": "Chinese",
+    "cmn": "Chinese",
+    "en": "English",
+    "yue": "Cantonese",
+    "ja": "Japanese",
+    "ko": "Korean",
+}
+
+
+def _normalize_qwen_language(language: str | None) -> str | None:
+    if not language:
+        return None
+    normalized = language.strip()
+    return _QWEN_LANGUAGE_ALIASES.get(normalized.casefold().replace("_", "-"), normalized)
+
 
 class ASRBackend(Protocol):
     model_name: str
@@ -92,7 +109,11 @@ def create_asr_app(backend: ASRBackend) -> FastAPI:
         if len(audio) > 32 * 1024 * 1024:
             raise HTTPException(status_code=413, detail="audio file is too large")
         try:
-            text = await asyncio.to_thread(backend.transcribe, audio, language)
+            text = await asyncio.to_thread(
+                backend.transcribe,
+                audio,
+                _normalize_qwen_language(language),
+            )
         except Exception as error:
             raise HTTPException(status_code=422, detail=f"transcription failed: {error}") from error
         return {"text": text}

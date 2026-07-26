@@ -20,7 +20,7 @@ def test_asr_server_exposes_openai_transcription_endpoint() -> None:
     response = client.post(
         "/v1/audio/transcriptions",
         files={"file": ("input.wav", b"RIFF-local-test", "audio/wav")},
-        data={"model": "Qwen3-ASR-0.6B", "language": "Chinese"},
+        data={"model": "Qwen3-ASR-0.6B", "language": "zh"},
     )
 
     assert response.status_code == 200

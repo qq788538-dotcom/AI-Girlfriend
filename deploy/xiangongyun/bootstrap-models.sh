@@ -61,6 +61,51 @@ if not files or any(not (index.parent / name).is_file() or (index.parent / name)
     esac
 }
 
+qwen36_awq_complete() {
+    target="$1"
+    snapshot_complete "$target" model.safetensors.index.json || return 1
+    "$bootstrap_venv/bin/python" -c '
+import json
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+config = json.loads((root / "config.json").read_text())
+quantization = config.get("quantization_config", {})
+excluded = set(quantization.get("modules_to_not_convert", []))
+required_exclusions = {"linear_attn", "self_attn", "shared_expert"}
+if quantization.get("quant_method") != "awq" or not required_exclusions <= excluded:
+    raise SystemExit(1)
+
+weights = json.loads(
+    (root / "model.safetensors.index.json").read_text()
+).get("weight_map", {})
+linear_weights = [
+    name
+    for name in weights
+    if ".linear_attn." in name and name.endswith(".weight")
+]
+linear_qweights = [
+    name
+    for name in weights
+    if ".linear_attn." in name and name.endswith(".qweight")
+]
+if len(linear_weights) < 100 or linear_qweights:
+    raise SystemExit(1)
+' "$target"
+}
+
+download_snapshot_complete() {
+    target="$1"
+    marker="$2"
+    profile="$3"
+    if [ "$profile" = qwen36_awq ]; then
+        qwen36_awq_complete "$target"
+    else
+        snapshot_complete "$target" "$marker"
+    fi
+}
+
 ensure_venv() {
     target="$1"
     if [ ! -x "$target/bin/python" ]; then
@@ -74,6 +119,11 @@ if [ ! -x "$vllm_venv/bin/vllm" ]; then
         --python "$vllm_venv/bin/python" \
         "vllm[audio]==$vllm_version" \
         "huggingface_hub[cli]"
+fi
+if [ ! -x "$vllm_venv/bin/ninja" ]; then
+    "$uv" pip install \
+        --python "$vllm_venv/bin/python" \
+        ninja
 fi
 
 ensure_venv "$asr_venv"
@@ -96,6 +146,11 @@ if ! "$tts_venv/bin/python" -c \
     "$uv" pip install \
         --python "$tts_venv/bin/python" \
         "vllm-omni==$vllm_omni_version"
+fi
+if [ ! -x "$tts_venv/bin/ninja" ]; then
+    "$uv" pip install \
+        --python "$tts_venv/bin/python" \
+        ninja
 fi
 
 ensure_venv "$embedding_venv"
@@ -135,17 +190,42 @@ download_model() {
     done
 }
 
+download_model_subset() {
+    repo="$1"
+    include_pattern="$2"
+    target="$3"
+    marker="$4"
+    attempt=1
+    while ! snapshot_complete "$target" "$marker"; do
+        echo "Downloading $include_pattern from $repo (attempt $attempt/$model_download_attempts)"
+        if "$hf" download "$repo" \
+            --include "$include_pattern" \
+            --local-dir "$target" &&
+            snapshot_complete "$target" "$marker"; then
+            break
+        fi
+        if [ "$attempt" -ge "$model_download_attempts" ]; then
+            echo "Model subset did not complete after $attempt attempts: $repo:$include_pattern" >&2
+            exit 1
+        fi
+        attempt=$((attempt + 1))
+        sleep 5
+    done
+}
+
 download_modelscope_model() {
     repo="$1"
     target="$2"
     marker="$3"
+    profile="${4:-generic}"
     attempt=1
-    while ! snapshot_complete "$target" "$marker"; do
+    while ! download_snapshot_complete "$target" "$marker" "$profile"; do
         echo "Downloading $repo from ModelScope (attempt $attempt/$model_download_attempts)"
         if "$modelscope" download "$repo" \
             --local-dir "$target" \
             --max-workers 4 &&
-            snapshot_complete "$target" "$marker"; then
+            download_snapshot_complete "$target" "$marker" "$profile"
+        then
             break
         fi
         if [ "$attempt" -ge "$model_download_attempts" ]; then
@@ -157,10 +237,11 @@ download_modelscope_model() {
     done
 }
 
-download_model \
-    mattbucci/Qwen3.6-35B-A3B-AWQ \
-    "$models_dir/Qwen3.6-35B-A3B-AWQ" \
-    model.safetensors.index.json
+download_modelscope_model \
+    tclf90/Qwen3.6-35B-A3B-AWQ \
+    "$models_dir/Qwen3.6-35B-A3B-AWQ-QuantTrio" \
+    model.safetensors.index.json \
+    qwen36_awq
 download_modelscope_model \
     Qwen/Qwen3-ASR-0.6B \
     "$models_dir/Qwen3-ASR-0.6B" \
@@ -169,6 +250,11 @@ download_model \
     bosonai/higgs-tts-3-4b \
     "$models_dir/higgs-tts-3-4b" \
     model.safetensors
+download_model_subset \
+    k2-fsa/OmniVoice \
+    'audio_tokenizer/*' \
+    "$models_dir/OmniVoice" \
+    audio_tokenizer/model.safetensors
 download_modelscope_model \
     Qwen/Qwen3-Embedding-0.6B \
     "$models_dir/Qwen3-Embedding-0.6B" \

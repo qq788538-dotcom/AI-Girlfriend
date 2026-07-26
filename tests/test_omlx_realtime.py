@@ -478,6 +478,11 @@ async def test_memory_fact_is_injected_and_committed_after_each_turn() -> None:
                 200,
                 json={"choices": [{"message": {"content": "你叫小猫。"}}]},
             )
+        if request.url.path == "/api/v1/sessions":
+            return httpx.Response(
+                200,
+                json={"status": "ok", "result": {"session_id": "created"}},
+            )
         if request.url.path.endswith("/messages/batch"):
             return httpx.Response(200, json={"status": "ok"})
         if request.url.path.endswith("/commit"):
@@ -501,6 +506,7 @@ async def test_memory_fact_is_injected_and_committed_after_each_turn() -> None:
     assert [request.url.path for request in observed] == [
         "/api/v1/search/recall",
         "/v1/chat/completions",
+        "/api/v1/sessions",
         f"/api/v1/sessions/{session.session_id}/messages/batch",
         f"/api/v1/sessions/{session.session_id}/commit",
     ]

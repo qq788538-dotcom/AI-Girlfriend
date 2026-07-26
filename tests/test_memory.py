@@ -26,6 +26,11 @@ async def test_openviking_memory_recalls_and_records_turns() -> None:
                     },
                 },
             )
+        if request.url.path == "/api/v1/sessions":
+            return httpx.Response(
+                200,
+                json={"status": "ok", "result": {"session_id": "session-1"}},
+            )
         if request.url.path.endswith("/messages/batch"):
             return httpx.Response(200, json={"status": "ok", "result": {"added": 2}})
         if request.url.path.endswith("/commit"):
@@ -45,9 +50,15 @@ async def test_openviking_memory_recalls_and_records_turns() -> None:
     assert await memory.commit("session-1")
     assert [request.url.path for request in observed] == [
         "/api/v1/search/recall",
+        "/api/v1/sessions",
         "/api/v1/sessions/session-1/messages/batch",
         "/api/v1/sessions/session-1/commit",
     ]
+    assert observed[1].read() == (
+        b'{"session_id":"session-1","memory_policy":{"self":{"enabled":true},'
+        b'"peer":{"enabled":false},"memory_types":["entities","preferences","events"],'
+        b'"working_memory":{"enabled":false}}}'
+    )
     assert observed[-1].read() == b'{"keep_recent_count":0}'
     await memory.close()
 
