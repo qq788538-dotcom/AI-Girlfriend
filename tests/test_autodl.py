@@ -34,3 +34,5 @@ def test_liveact_can_force_the_pytorch_sdpa_compatibility_backend() -> None:
     assert 'sys.modules["flash_attn"] = None' in launcher
     assert "scaled_dot_product_attention" in launcher
     assert "attention_module.flash_attention = sdpa_attention" in launcher
+    assert '"wan.modules.clip", "wan.modules.model"' in launcher
+    assert "loaded_module.flash_attention = sdpa_attention" in launcher

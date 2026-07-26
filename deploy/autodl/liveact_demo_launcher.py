@@ -81,6 +81,10 @@ def _install_sdpa_fallback() -> None:
     modules_package = sys.modules.get("wan.modules")
     if modules_package is not None:
         modules_package.flash_attention = sdpa_attention
+    for module_name in ("wan.modules.clip", "wan.modules.model"):
+        loaded_module = sys.modules.get(module_name)
+        if loaded_module is not None:
+            loaded_module.flash_attention = sdpa_attention
     warnings.warn(
         "SoulX-LiveAct is using the PyTorch SDPA compatibility backend.",
         stacklevel=2,
