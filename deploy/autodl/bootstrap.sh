@@ -11,7 +11,16 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y curl git jq openssl rsync screen
+apt-get install -y \
+    build-essential \
+    curl \
+    ffmpeg \
+    git \
+    jq \
+    openssl \
+    python3-venv \
+    rsync \
+    screen
 
 if [ ! -f "$script_dir/runtime.env" ]; then
     cp "$script_dir/env.example" "$script_dir/runtime.env"

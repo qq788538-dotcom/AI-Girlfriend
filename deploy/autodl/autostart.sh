@@ -1,5 +1,5 @@
 #!/bin/bash
-set -u
+set -eu
 
 project_dir="${VH_XGC_PROJECT_DIR:-/root/AI-Girlfriend}"
 runtime_dir="$project_dir/runtime/autodl"

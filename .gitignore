@@ -5,6 +5,8 @@
 .env.xgc
 deploy/xiangongyun/runtime.env
 deploy/xiangongyun/secrets.env
+deploy/autodl/runtime.env
+deploy/autodl/secrets.env
 .pytest_cache/
 .ruff_cache/
 .venv/
