@@ -102,7 +102,7 @@ def test_right_cloud_avatar_button_persists_and_reconnects_mode() -> None:
 
     assert 'id="cloudAvatarButton"' in html
     assert 'id="cloudButtonStatus"' in html
-    assert 'src="/app.js?v=24"' in html
+    assert 'src="/app.js?v=25"' in html
     assert 'src="/hls.min.js?v=1.6.16"' in html
     assert 'href="/styles.css?v=10"' in html
     assert 'localStorage.getItem("cloudAvatarEnabled")' in javascript
@@ -131,14 +131,23 @@ def test_avatar_stream_keeps_static_portrait_until_first_video_frame() -> None:
     assert "opacity 180ms ease" in css
     assert "window.Hls?.isSupported()" in javascript
     assert "liveSyncDurationCount: 2" in javascript
-    assert '"HLS 播放中断，正在等待完整视频兜底。"' in javascript
+    assert "hlsFinalVideoEvent" in javascript
+    assert "failHlsPlayback" in javascript
+    assert "state.hlsFinalVideoEvent = event" in javascript
+    assert "playFinalAvatarVideo(event, true)" in javascript
+    assert 'setHlsStatus("waiting-mp4", "HLS 中断 · 等待 MP4")' in javascript
+    assert 'fallback ? "最终 MP4 兜底" : "完整视频"' in javascript
+    assert 'armHlsWatchdog(15_000, "HLS 首画面等待超时")' in javascript
+    assert 'armHlsWatchdog(8_000, "HLS 缓冲超时")' in javascript
+    assert "state.hlsEnded" in javascript
+    assert "elements.avatarFrame.classList.add(\"video-ready\");\n    recordFirstAvatarFrame();" in javascript
 
 
 def test_cloud_renderer_failure_switches_to_browser_audio() -> None:
     html = (PUBLIC / "index.html").read_text(encoding="utf-8")
     javascript = (PUBLIC / "app.js").read_text(encoding="utf-8")
 
-    assert 'src="/app.js?v=24"' in html
+    assert 'src="/app.js?v=25"' in html
     assert 'case "avatar.fallback":' in javascript
     assert 'state.playbackOwner = "browser"' in javascript
     assert 'elements.playbackMetric.textContent = "浏览器 PCM"' in javascript

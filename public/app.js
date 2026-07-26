@@ -58,6 +58,10 @@ const state = {
   preferMediaSource: false,
   hls: null,
   hlsResponseId: null,
+  hlsFinalVideoEvent: null,
+  hlsFailed: false,
+  hlsEnded: false,
+  hlsWatchdogTimer: null,
   segmentFallbackQueue: [],
   avatarVideoGeneration: 0,
   avatarVideoFramePending: false,
@@ -252,6 +256,7 @@ function showAvatarVideoAfterFirstFrame() {
     }
     elements.avatarVideo.classList.add("is-visible");
     elements.avatarFrame.classList.add("video-ready");
+    recordFirstAvatarFrame();
   };
   if ("requestVideoFrameCallback" in elements.avatarVideo) {
     elements.avatarVideo.requestVideoFrameCallback(reveal);
@@ -262,10 +267,11 @@ function showAvatarVideoAfterFirstFrame() {
 
 function scheduleAvatarImageFallback() {
   if (state.avatarVideoStallTimer !== null) return;
+  const delayMs = state.hlsResponseId ? 800 : 160;
   state.avatarVideoStallTimer = window.setTimeout(() => {
     state.avatarVideoStallTimer = null;
     showAvatarImage();
-  }, 160);
+  }, delayMs);
 }
 
 function clearAvatarImageFallback() {
@@ -560,15 +566,19 @@ function handleMessage(message) {
     case "avatar.stream.ready": {
       resetMediaSource();
       state.preferMediaSource = false;
-      recordFirstAvatarFrame();
       state.waitingForRenderer = false;
       state.pendingPcm = [];
       state.segmentMode = false;
-      state.segmentPlaying = true;
+      state.segmentPlaying = false;
       prepareAvatarVideo();
-      setAvatarState("speaking");
+      setAvatarState("rendering");
       elements.avatarMetric.textContent = event.backend || "remote";
       state.hlsResponseId = event.response_id || null;
+      state.hlsFinalVideoEvent = null;
+      state.hlsFailed = false;
+      state.hlsEnded = false;
+      setHlsStatus("loading", "HLS 首片加载");
+      armHlsWatchdog(15_000, "HLS 首画面等待超时");
       if (elements.avatarVideo.canPlayType("application/vnd.apple.mpegurl")) {
         elements.avatarVideo.src = event.url;
         elements.avatarVideo.play().catch(() => {
@@ -588,41 +598,24 @@ function handleMessage(message) {
         });
         state.hls.on(window.Hls.Events.ERROR, (_event, data) => {
           if (!data.fatal) return;
-          state.hls?.destroy();
-          state.hls = null;
-          state.hlsResponseId = null;
-          state.segmentPlaying = false;
-          showAvatarImage();
-          elements.assistantTranscript.textContent = "HLS 播放中断，正在等待完整视频兜底。";
+          failHlsPlayback(`${data.type || "HLS"}: ${data.details || "fatal error"}`);
         });
         state.hls.loadSource(event.url);
         state.hls.attachMedia(elements.avatarVideo);
       } else {
-        state.hlsResponseId = null;
-        state.segmentPlaying = false;
-        showAvatarImage();
-        elements.assistantTranscript.textContent = "当前浏览器不支持 HLS，正在等待完整视频兜底。";
+        failHlsPlayback("当前浏览器不支持 HLS");
       }
       break;
     }
     case "avatar.video.ready": {
       if (state.hlsResponseId && state.hlsResponseId === event.response_id) {
+        state.hlsFinalVideoEvent = event;
+        if (state.hlsFailed) {
+          playFinalAvatarVideo(event, true);
+        }
         break;
       }
-      resetMediaSource();
-      state.preferMediaSource = false;
-      recordFirstAvatarFrame();
-      state.waitingForRenderer = false;
-      state.pendingPcm = [];
-      state.segmentMode = false;
-      state.segmentPlaying = true;
-      elements.avatarVideo.src = event.url;
-      prepareAvatarVideo();
-      setAvatarState("speaking");
-      elements.avatarVideo.play().catch(() => {
-        elements.assistantTranscript.textContent = "浏览器阻止了有声视频自动播放，请点击画面继续。";
-      });
-      elements.avatarMetric.textContent = event.backend || "remote";
+      playFinalAvatarVideo(event, false);
       break;
     }
     case "avatar.video.segment":
@@ -633,7 +626,6 @@ function handleMessage(message) {
       if (state.preferMediaSource) {
         state.segmentFallbackQueue.push(event);
       } else {
-        recordFirstAvatarFrame();
         enqueueSegment(event);
       }
       break;
@@ -654,9 +646,6 @@ function handleMessage(message) {
     case "avatar.media.init":
     case "avatar.media.fragment":
       if (state.preferMediaSource) {
-        if (event.type === "avatar.media.fragment") {
-          recordFirstAvatarFrame();
-        }
         state.mediaSourceQueue.push({
           data: base64ToArrayBuffer(event.data),
           isMedia: event.type === "avatar.media.fragment",
@@ -667,8 +656,24 @@ function handleMessage(message) {
       break;
     case "avatar.render.done":
       state.rendererDone = true;
+      if (state.hlsResponseId && state.hlsFailed && state.hlsFinalVideoEvent) {
+        playFinalAvatarVideo(state.hlsFinalVideoEvent, true);
+        break;
+      }
       maybeStartMediaSourcePlayback();
       finishMediaSourceIfReady();
+      if (
+        state.hlsResponseId &&
+        state.hlsEnded &&
+        !state.segmentPlaying &&
+        !state.hlsFailed
+      ) {
+        setAvatarState("listening");
+        if (state.upstreamMode === "omlx" && !state.clientConfig.barge_in_enabled) {
+          resumeLocalVadNow();
+        }
+        break;
+      }
       if (
         state.segmentMode &&
         !state.segmentPlaying &&
@@ -1255,6 +1260,80 @@ function interrupt() {
   stopAssistantPlayback();
 }
 
+function setHlsStatus(status, label) {
+  elements.stage.dataset.hlsStatus = status;
+  if (label) {
+    elements.playbackMetric.textContent = label;
+  }
+}
+
+function clearHlsWatchdog() {
+  if (state.hlsWatchdogTimer !== null) {
+    clearTimeout(state.hlsWatchdogTimer);
+    state.hlsWatchdogTimer = null;
+  }
+}
+
+function armHlsWatchdog(timeoutMs, reason) {
+  clearHlsWatchdog();
+  state.hlsWatchdogTimer = window.setTimeout(() => {
+    state.hlsWatchdogTimer = null;
+    if (state.hlsResponseId && !state.hlsFailed && !state.segmentPlaying) {
+      failHlsPlayback(reason);
+    }
+  }, timeoutMs);
+}
+
+function teardownHls({ clearResponse = true } = {}) {
+  clearHlsWatchdog();
+  if (state.hls) {
+    state.hls.destroy();
+    state.hls = null;
+  }
+  if (clearResponse) {
+    state.hlsResponseId = null;
+    state.hlsFinalVideoEvent = null;
+    state.hlsFailed = false;
+    state.hlsEnded = false;
+    delete elements.stage.dataset.hlsStatus;
+  }
+}
+
+function failHlsPlayback(reason) {
+  if (!state.hlsResponseId || state.hlsFailed) return;
+  state.hlsFailed = true;
+  teardownHls({ clearResponse: false });
+  state.segmentPlaying = false;
+  elements.avatarVideo.pause();
+  elements.avatarVideo.removeAttribute("src");
+  elements.avatarVideo.load();
+  showAvatarImage();
+  setAvatarState("rendering");
+  setHlsStatus("waiting-mp4", "HLS 中断 · 等待 MP4");
+  console.warn("HLS playback failed; waiting for final MP4.", reason);
+  if (state.hlsFinalVideoEvent) {
+    playFinalAvatarVideo(state.hlsFinalVideoEvent, true);
+  }
+}
+
+function playFinalAvatarVideo(event, fallback) {
+  resetMediaSource();
+  state.preferMediaSource = false;
+  state.waitingForRenderer = false;
+  state.pendingPcm = [];
+  state.segmentMode = false;
+  state.segmentPlaying = true;
+  elements.avatarVideo.src = event.url;
+  prepareAvatarVideo();
+  setAvatarState("speaking");
+  setHlsStatus(fallback ? "mp4-fallback" : "mp4", fallback ? "最终 MP4 兜底" : "完整视频");
+  elements.avatarVideo.play().catch(() => {
+    state.segmentPlaying = false;
+    elements.assistantTranscript.textContent = "浏览器阻止了有声视频自动播放，请点击画面继续。";
+  });
+  elements.avatarMetric.textContent = event.backend || "remote";
+}
+
 function recordFirstAvatarFrame() {
   if (state.firstAvatarAt === null) {
     state.firstAvatarAt = performance.now();
@@ -1409,11 +1488,7 @@ function resetMediaSource() {
   state.avatarVideoGeneration += 1;
   showAvatarImage();
   elements.avatarVideo.pause();
-  if (state.hls) {
-    state.hls.destroy();
-    state.hls = null;
-  }
-  state.hlsResponseId = null;
+  teardownHls();
   if (state.sourceBuffer?.updating) {
     try {
       state.sourceBuffer.abort();
@@ -1474,7 +1549,17 @@ function playNextSegment() {
 }
 
 elements.avatarVideo.addEventListener("ended", () => {
-  if (state.mediaSource) {
+  if (state.hlsResponseId) {
+    clearHlsWatchdog();
+    state.hlsEnded = true;
+    state.segmentPlaying = false;
+    showAvatarImage();
+    if (state.rendererDone) {
+      setAvatarState("listening");
+    } else {
+      setAvatarState("rendering");
+    }
+  } else if (state.mediaSource) {
     state.segmentPlaying = false;
     if (state.rendererDone) {
       setAvatarState("listening");
@@ -1489,7 +1574,8 @@ elements.avatarVideo.addEventListener("ended", () => {
   if (
     state.upstreamMode === "omlx" &&
     !state.segmentPlaying &&
-    (!state.segmentMode || state.rendererDone)
+    (!state.segmentMode || state.rendererDone) &&
+    (!state.hlsResponseId || state.rendererDone)
   ) {
     resumeLocalVadNow();
   }
@@ -1500,6 +1586,12 @@ elements.avatarVideo.addEventListener("ended", () => {
 
 elements.avatarVideo.addEventListener("playing", () => {
   clearAvatarImageFallback();
+  if (state.hlsResponseId && !state.hlsFailed) {
+    clearHlsWatchdog();
+    state.segmentPlaying = true;
+    setAvatarState("speaking");
+    setHlsStatus("playing", "HLS 实时播放");
+  }
   showAvatarVideoAfterFirstFrame();
   if (state.playbackStartedAt === null) {
     state.playbackStartedAt = performance.now();
@@ -1510,12 +1602,27 @@ elements.avatarVideo.addEventListener("playing", () => {
 });
 
 elements.avatarVideo.addEventListener("waiting", () => {
+  if (state.hlsResponseId && !state.hlsFailed) {
+    state.segmentPlaying = false;
+    setHlsStatus("buffering", "HLS 缓冲中");
+    armHlsWatchdog(8_000, "HLS 缓冲超时");
+  }
   skipSmallMediaGap();
   scheduleAvatarImageFallback();
 });
 elements.avatarVideo.addEventListener("stalled", () => {
+  if (state.hlsResponseId && !state.hlsFailed) {
+    state.segmentPlaying = false;
+    setHlsStatus("buffering", "HLS 缓冲中");
+    armHlsWatchdog(8_000, "HLS 停滞超时");
+  }
   skipSmallMediaGap();
   scheduleAvatarImageFallback();
+});
+elements.avatarVideo.addEventListener("error", () => {
+  if (state.hlsResponseId && !state.hlsFailed) {
+    failHlsPlayback(elements.avatarVideo.error?.message || "视频元素播放错误");
+  }
 });
 elements.avatarVideo.addEventListener("timeupdate", skipSmallMediaGap);
 
