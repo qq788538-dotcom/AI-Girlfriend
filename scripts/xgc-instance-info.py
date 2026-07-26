@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import argparse
 import json
 import urllib.error
 import urllib.request
@@ -16,6 +17,15 @@ def env_value(path: Path, name: str) -> str:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Read sanitized Xiangongyun instance metadata."
+    )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="List every instance instead of the configured deployment only.",
+    )
+    args = parser.parse_args()
     project_dir = Path(__file__).resolve().parents[1]
     token = env_value(project_dir / ".env", "XGC_API_TOKEN")
     instance_id = json.loads(
@@ -24,7 +34,11 @@ def main() -> None:
     if not token:
         raise SystemExit("XGC_API_TOKEN is not configured")
 
-    url = f"https://api.xiangongyun.com/open/instance/{instance_id}"
+    url = (
+        "https://api.xiangongyun.com/open/instances"
+        if args.all
+        else f"https://api.xiangongyun.com/open/instance/{instance_id}"
+    )
     header_candidates = (
         {"Authorization": f"Bearer {token}"},
         {"Authorization": token},
@@ -40,6 +54,36 @@ def main() -> None:
                 continue
             raise
         data = payload.get("data", payload)
+        if args.all:
+            if isinstance(data, dict):
+                data = data.get("list", [])
+            if not isinstance(data, list):
+                raise SystemExit("Unexpected XGC instance-list response")
+            safe_instances = [
+                {
+                    "id": item.get("id"),
+                    "name": item.get("name"),
+                    "status": item.get("status"),
+                    "progress": item.get("progress"),
+                    "gpu_model": item.get("gpu_model"),
+                    "gpu_used": item.get("gpu_used"),
+                    "image_id": item.get("image_id"),
+                    "image_type": item.get("image_type"),
+                    "ssh_domain": item.get("ssh_domain"),
+                    "ssh_port": item.get("ssh_port"),
+                    "web_url": item.get("web_url"),
+                }
+                for item in data
+                if isinstance(item, dict)
+            ]
+            print(
+                json.dumps(
+                    {"instances": safe_instances},
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+            return
         if isinstance(data, dict) and isinstance(data.get("instance"), dict):
             data = data["instance"]
         if not isinstance(data, dict):
