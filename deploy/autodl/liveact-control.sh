@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
+SELF="$SCRIPT_DIR/$(basename "$0")"
 PROJECT_DIR="${VH_AUTODL_PROJECT_DIR:-/root/AI-Girlfriend}"
 DATA_ROOT="${VH_AUTODL_DATA_ROOT:-/root/autodl-tmp}"
 LIVEACT_DIR="$PROJECT_DIR/vendor/SoulX-LiveAct"
@@ -106,7 +108,7 @@ start_services() {
     if curl -fsS --max-time 2 http://127.0.0.1:5001/ >/dev/null 2>&1; then
         start_wrapper
     elif ! pid_is_alive "$SUPERVISOR_PID_FILE"; then
-        nohup "$0" wait-wrapper >>"$SUPERVISOR_LOG" 2>&1 </dev/null &
+        nohup "$SELF" wait-wrapper >>"$SUPERVISOR_LOG" 2>&1 </dev/null &
         echo "$!" >"$SUPERVISOR_PID_FILE"
     fi
 }
@@ -139,8 +141,8 @@ case "${1:-status}" in
         stop_pid "$DEMO_PID_FILE"
         ;;
     restart)
-        "$0" stop
-        "$0" start
+        "$SELF" stop
+        "$SELF" start
         ;;
     status)
         show_status

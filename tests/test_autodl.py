@@ -38,3 +38,5 @@ def test_liveact_defaults_to_native_flash_attention_with_sdpa_fallback() -> None
     assert "attention_module.flash_attention = sdpa_attention" in launcher
     assert '"wan.modules.clip", "wan.modules.model"' in launcher
     assert "loaded_module.flash_attention = sdpa_attention" in launcher
+    assert 'SELF="$SCRIPT_DIR/$(basename "$0")"' in control
+    assert 'nohup "$SELF" wait-wrapper' in control
