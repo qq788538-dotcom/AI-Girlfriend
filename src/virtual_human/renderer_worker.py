@@ -16,7 +16,7 @@ import httpx
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -318,12 +318,26 @@ class LiveActOfficialBackend(RendererBackend):
                 )
             result.raise_for_status()
 
+            stream_announced = False
             while True:
                 status_response = await client.get(f"{self.demo_url}/task_status/{task_id}")
                 status_response.raise_for_status()
                 status = status_response.json()
                 if status.get("error") or status.get("status") == "failed":
                     raise RuntimeError(status.get("error") or status.get("message") or "LiveAct failed")
+                if status.get("stream_ready") and not stream_announced:
+                    await emit(
+                        {
+                            "type": "avatar.stream.ready",
+                            "session_id": session_id,
+                            "response_id": response.response_id,
+                            "url": f"{base_url}/liveact/stream/{task_id}/live.m3u8",
+                            "backend": "liveact-official",
+                            "clock": "audio-master",
+                            "audio_included": True,
+                        }
+                    )
+                    stream_announced = True
                 if status.get("is_done"):
                     final_video = Path(str(status.get("final_video_path") or ""))
                     if not final_video.is_file():
@@ -536,6 +550,21 @@ def create_renderer_app(settings: RendererSettings | None = None) -> FastAPI:
                     renderer_settings.liveact_demo_url if renderer_settings.backend == "liveact-official" else None
                 ),
             }
+        )
+
+    @application.get("/liveact/stream/{task_id}/{filename:path}")
+    async def liveact_stream(task_id: str, filename: str) -> Response:
+        if renderer_settings.backend != "liveact-official":
+            return Response(status_code=404)
+        async with httpx.AsyncClient(timeout=30) as client:
+            upstream = await client.get(
+                f"{renderer_settings.liveact_demo_url}/stream/{task_id}/{filename}"
+            )
+        return Response(
+            content=upstream.content,
+            status_code=upstream.status_code,
+            media_type=upstream.headers.get("content-type"),
+            headers={"Cache-Control": upstream.headers.get("cache-control", "no-cache")},
         )
 
     @application.websocket("/avatar")

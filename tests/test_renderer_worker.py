@@ -3,7 +3,12 @@ import wave
 
 import pytest
 
-from virtual_human.renderer_worker import LiveActOfficialBackend, ResponseAudio
+from virtual_human.renderer_worker import (
+    LiveActOfficialBackend,
+    RendererSettings,
+    ResponseAudio,
+    create_renderer_app,
+)
 
 
 def _audio_event(chunk_index: int, sample_count: int = 960) -> dict[str, object]:
@@ -55,7 +60,7 @@ async def test_liveact_publishes_final_mp4_for_browser_playback(
         def json(self) -> dict[str, object]:
             return {
                 "is_done": True,
-                "stream_ready": False,
+                "stream_ready": True,
                 "final_video_path": str(final_video),
             }
 
@@ -89,6 +94,15 @@ async def test_liveact_publishes_final_mp4_for_browser_playback(
 
     published = output_dir / "response-1.mp4"
     assert published.read_bytes() == b"mp4"
+    assert events[-3] == {
+        "type": "avatar.stream.ready",
+        "session_id": "session-1",
+        "response_id": "response-1",
+        "url": "http://127.0.0.1:8772/liveact/stream/session-1-response-1/live.m3u8",
+        "backend": "liveact-official",
+        "clock": "audio-master",
+        "audio_included": True,
+    }
     assert events[-2] == {
         "type": "avatar.video.ready",
         "session_id": "session-1",
@@ -100,10 +114,57 @@ async def test_liveact_publishes_final_mp4_for_browser_playback(
         "audio_included": True,
     }
     assert events[-1]["type"] == "avatar.render.done"
-    assert all(event["type"] != "avatar.stream.ready" for event in events)
 
 
 async def _capture_event(
     events: list[dict[str, object]], event: dict[str, object]
 ) -> None:
     events.append(event)
+
+
+async def test_liveact_hls_proxy_keeps_stream_on_renderer_origin(
+    tmp_path, monkeypatch
+) -> None:
+    requested_urls: list[str] = []
+
+    class FakeResponse:
+        content = b"#EXTM3U\n"
+        status_code = 200
+        headers = {
+            "content-type": "application/vnd.apple.mpegurl",
+            "cache-control": "no-cache",
+        }
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args) -> None:
+            return None
+
+        async def get(self, url: str) -> FakeResponse:
+            requested_urls.append(url)
+            return FakeResponse()
+
+    monkeypatch.setattr(
+        "virtual_human.renderer_worker.httpx.AsyncClient",
+        lambda **_kwargs: FakeClient(),
+    )
+    application = create_renderer_app(
+        RendererSettings(
+            VH_RENDERER_BACKEND="liveact-official",
+            VH_RENDERER_RUNTIME_DIR=tmp_path,
+            VH_LIVEACT_DEMO_URL="http://127.0.0.1:5001",
+        )
+    )
+    endpoint = next(
+        route.endpoint
+        for route in application.routes
+        if getattr(route, "path", "") == "/liveact/stream/{task_id}/{filename:path}"
+    )
+
+    response = await endpoint("task-1", "live.m3u8")
+
+    assert requested_urls == ["http://127.0.0.1:5001/stream/task-1/live.m3u8"]
+    assert response.body == b"#EXTM3U\n"
+    assert response.media_type == "application/vnd.apple.mpegurl"

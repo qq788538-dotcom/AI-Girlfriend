@@ -1,3 +1,4 @@
+import hashlib
 from pathlib import Path
 
 PUBLIC = Path(__file__).resolve().parents[1] / "public"
@@ -28,6 +29,17 @@ def test_realtime_ui_keeps_required_dom_hooks() -> None:
         "privacyNote",
     ):
         assert f'id="{element_id}"' in html
+
+
+def test_hls_player_is_pinned_and_served_locally() -> None:
+    html = (PUBLIC / "index.html").read_text(encoding="utf-8")
+    hls_bundle = (PUBLIC / "hls.min.js").read_bytes()
+
+    assert 'src="/hls.min.js?v=1.6.16"' in html
+    assert hashlib.sha256(hls_bundle).hexdigest() == (
+        "442f599c34f103c3355b375a23bdff560592d7117d09a8c847242ea3de2d40e0"
+    )
+    assert (PUBLIC / "hls.min.js.LICENSE.txt").is_file()
 
 
 def test_ui_uses_current_avatar_and_responsive_fullscreen_layout() -> None:
@@ -81,7 +93,8 @@ def test_right_cloud_avatar_button_persists_and_reconnects_mode() -> None:
 
     assert 'id="cloudAvatarButton"' in html
     assert 'id="cloudButtonStatus"' in html
-    assert 'src="/app.js?v=19"' in html
+    assert 'src="/app.js?v=20"' in html
+    assert 'src="/hls.min.js?v=1.6.16"' in html
     assert 'href="/styles.css?v=10"' in html
     assert 'localStorage.getItem("cloudAvatarEnabled")' in javascript
     assert 'localStorage.setItem("cloudAvatarEnabled"' in javascript
@@ -107,13 +120,16 @@ def test_avatar_stream_keeps_static_portrait_until_first_video_frame() -> None:
     assert ".avatar-frame.video-ready #avatarImage" in css
     assert ".avatar-frame.video-ready #avatarImage" in css
     assert "opacity 180ms ease" in css
+    assert "window.Hls?.isSupported()" in javascript
+    assert "liveSyncDurationCount: 2" in javascript
+    assert '"HLS 播放中断，正在等待完整视频兜底。"' in javascript
 
 
 def test_cloud_renderer_failure_switches_to_browser_audio() -> None:
     html = (PUBLIC / "index.html").read_text(encoding="utf-8")
     javascript = (PUBLIC / "app.js").read_text(encoding="utf-8")
 
-    assert 'src="/app.js?v=19"' in html
+    assert 'src="/app.js?v=20"' in html
     assert 'case "avatar.fallback":' in javascript
     assert 'state.playbackOwner = "browser"' in javascript
     assert 'elements.playbackMetric.textContent = "浏览器 PCM"' in javascript

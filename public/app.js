@@ -54,6 +54,8 @@ const state = {
   mediaSourceDisabled: false,
   mediaSourcePrerollSeconds: 1,
   preferMediaSource: false,
+  hls: null,
+  hlsResponseId: null,
   segmentFallbackQueue: [],
   avatarVideoGeneration: 0,
   avatarVideoFramePending: false,
@@ -496,8 +498,58 @@ function handleMessage(message) {
     case "avatar.render.accepted":
       setAvatarState("rendering");
       break;
-    case "avatar.video.ready":
     case "avatar.stream.ready": {
+      resetMediaSource();
+      state.preferMediaSource = false;
+      recordFirstAvatarFrame();
+      state.waitingForRenderer = false;
+      state.pendingPcm = [];
+      state.segmentMode = false;
+      state.segmentPlaying = true;
+      prepareAvatarVideo();
+      setAvatarState("speaking");
+      elements.avatarMetric.textContent = event.backend || "remote";
+      state.hlsResponseId = event.response_id || null;
+      if (elements.avatarVideo.canPlayType("application/vnd.apple.mpegurl")) {
+        elements.avatarVideo.src = event.url;
+        elements.avatarVideo.play().catch(() => {
+          elements.assistantTranscript.textContent = "浏览器阻止了有声视频自动播放，请点击画面继续。";
+        });
+      } else if (window.Hls?.isSupported()) {
+        state.hls = new window.Hls({
+          lowLatencyMode: true,
+          liveSyncDurationCount: 2,
+          liveMaxLatencyDurationCount: 5,
+          backBufferLength: 30,
+        });
+        state.hls.on(window.Hls.Events.MANIFEST_PARSED, () => {
+          elements.avatarVideo.play().catch(() => {
+            elements.assistantTranscript.textContent = "浏览器阻止了有声视频自动播放，请点击画面继续。";
+          });
+        });
+        state.hls.on(window.Hls.Events.ERROR, (_event, data) => {
+          if (!data.fatal) return;
+          state.hls?.destroy();
+          state.hls = null;
+          state.hlsResponseId = null;
+          state.segmentPlaying = false;
+          showAvatarImage();
+          elements.assistantTranscript.textContent = "HLS 播放中断，正在等待完整视频兜底。";
+        });
+        state.hls.loadSource(event.url);
+        state.hls.attachMedia(elements.avatarVideo);
+      } else {
+        state.hlsResponseId = null;
+        state.segmentPlaying = false;
+        showAvatarImage();
+        elements.assistantTranscript.textContent = "当前浏览器不支持 HLS，正在等待完整视频兜底。";
+      }
+      break;
+    }
+    case "avatar.video.ready": {
+      if (state.hlsResponseId && state.hlsResponseId === event.response_id) {
+        break;
+      }
       resetMediaSource();
       state.preferMediaSource = false;
       recordFirstAvatarFrame();
@@ -1195,6 +1247,11 @@ function resetMediaSource() {
   state.avatarVideoGeneration += 1;
   showAvatarImage();
   elements.avatarVideo.pause();
+  if (state.hls) {
+    state.hls.destroy();
+    state.hls = null;
+  }
+  state.hlsResponseId = null;
   if (state.sourceBuffer?.updating) {
     try {
       state.sourceBuffer.abort();
