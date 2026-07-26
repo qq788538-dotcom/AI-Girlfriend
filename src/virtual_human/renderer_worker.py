@@ -16,7 +16,7 @@ import httpx
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -331,7 +331,7 @@ class LiveActOfficialBackend(RendererBackend):
                             "type": "avatar.stream.ready",
                             "session_id": session_id,
                             "response_id": response.response_id,
-                            "url": f"{self.demo_url}/stream/{task_id}/live.m3u8",
+                            "url": f"{base_url}/liveact/stream/{task_id}/live.m3u8",
                             "backend": "liveact-official",
                             "clock": "audio-master",
                             "audio_included": True,
@@ -339,6 +339,26 @@ class LiveActOfficialBackend(RendererBackend):
                     )
                     stream_announced = True
                 if status.get("is_done"):
+                    final_video = Path(str(status.get("final_video_path") or ""))
+                    if not final_video.is_file():
+                        raise RuntimeError(
+                            f"LiveAct completed without a readable final video: {final_video}"
+                        )
+                    published_video = output_dir / f"{response.response_id}.mp4"
+                    shutil.copy2(final_video, published_video)
+                    relative = published_video.relative_to(output_dir.parent.parent)
+                    await emit(
+                        {
+                            "type": "avatar.video.ready",
+                            "session_id": session_id,
+                            "response_id": response.response_id,
+                            "url": f"{base_url}/runtime/{relative.as_posix()}",
+                            "duration_ms": response.duration_ms,
+                            "backend": "liveact-official",
+                            "clock": "audio-master",
+                            "audio_included": True,
+                        }
+                    )
                     await emit(
                         {
                             "type": "avatar.render.done",
@@ -530,6 +550,21 @@ def create_renderer_app(settings: RendererSettings | None = None) -> FastAPI:
                     renderer_settings.liveact_demo_url if renderer_settings.backend == "liveact-official" else None
                 ),
             }
+        )
+
+    @application.get("/liveact/stream/{task_id}/{filename:path}")
+    async def liveact_stream(task_id: str, filename: str) -> Response:
+        if renderer_settings.backend != "liveact-official":
+            return Response(status_code=404)
+        async with httpx.AsyncClient(timeout=30) as client:
+            upstream = await client.get(
+                f"{renderer_settings.liveact_demo_url}/stream/{task_id}/{filename}"
+            )
+        return Response(
+            content=upstream.content,
+            status_code=upstream.status_code,
+            media_type=upstream.headers.get("content-type"),
+            headers={"Cache-Control": upstream.headers.get("cache-control", "no-cache")},
         )
 
     @application.websocket("/avatar")
