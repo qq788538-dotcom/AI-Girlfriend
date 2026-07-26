@@ -78,9 +78,13 @@ run_python -m pip install -r "$FILTERED_REQUIREMENTS"
 run_python -m pip install ninja
 
 export MAX_JOBS="${MAX_JOBS:-8}"
-run_python -m pip install \
-    flash_attn==2.8.0.post2 \
-    --no-build-isolation
+if [ "${VH_FLASHHEAD_INSTALL_FLASH_ATTN:-1}" = "1" ]; then
+    run_python -m pip install \
+        flash_attn==2.8.0.post2 \
+        --no-build-isolation
+else
+    echo "Skipping optional FlashAttention extension; using PyTorch SDPA."
+fi
 
 run_python -m pip install -e "$PROJECT_DIR"
 run_python -m pip install "huggingface_hub[cli]"
