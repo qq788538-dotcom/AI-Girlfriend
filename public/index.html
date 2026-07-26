@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#08090d" />
+    <title>赛博女友 · 实时陪伴</title>
+    <link rel="stylesheet" href="/styles.css?v=10" />
+  </head>
+  <body>
+    <main class="shell">
+      <section id="stage" class="stage" data-state="idle" aria-label="虚拟人实时通话">
+        <div class="atmosphere" aria-hidden="true">
+          <span class="glow glow-one"></span>
+          <span class="glow glow-two"></span>
+          <span class="grain"></span>
+        </div>
+
+        <div id="avatarFrame" class="avatar-frame" data-state="idle">
+          <video id="avatarVideo" class="avatar-video" autoplay playsinline hidden></video>
+          <img
+            id="avatarImage"
+            src="/avatar-ai-girlfriend-v6.png"
+            alt="赛博女友人物形象"
+          />
+          <div class="portrait-light" aria-hidden="true"></div>
+          <div class="portrait-vignette" aria-hidden="true"></div>
+        </div>
+
+        <header class="topbar">
+          <div class="identity">
+            <div class="identity-line">
+              <h1 id="personaTitle">赛博女友</h1>
+              <details class="diagnostics">
+                <summary aria-label="查看运行信息">i</summary>
+                <aside class="metrics">
+                  <div><span>对话模式</span><strong id="modeMetric">读取中</strong></div>
+                  <div><span>音画状态</span><strong id="bufferMetric">0 ms</strong></div>
+                  <div><span>人物后端</span><strong id="avatarMetric">读取中</strong></div>
+                  <div><span>声音输出</span><strong id="playbackMetric">读取中</strong></div>
+                </aside>
+              </details>
+            </div>
+            <p class="tagline">LOCAL · REALTIME · ALWAYS HERE</p>
+          </div>
+
+          <div class="top-actions">
+            <div class="connection" role="status" aria-live="polite">
+              <span id="connectionDot" class="dot"></span>
+              <span id="connectionText">未连接</span>
+            </div>
+            <button id="fullscreenButton" class="utility-button" type="button" aria-label="进入全屏">
+              <span aria-hidden="true">⛶</span>
+            </button>
+          </div>
+        </header>
+
+        <section class="voice-console" aria-label="通话控制">
+          <button
+            id="micButton"
+            class="side-control mic-control"
+            type="button"
+            aria-label="开启麦克风"
+            aria-pressed="false"
+          >
+            <span class="mic-glyph" aria-hidden="true"></span>
+          </button>
+
+          <button id="connectButton" class="voice-orb" type="button" aria-label="按住说话">
+            <span class="orb-halo halo-outer" aria-hidden="true"></span>
+            <span class="orb-halo halo-inner" aria-hidden="true"></span>
+            <span class="orb-surface">
+              <span class="voice-bars" aria-hidden="true">
+                <i></i><i></i><i></i><i></i><i></i>
+              </span>
+              <span id="mainButtonLabel" class="orb-label">按住说话</span>
+            </span>
+          </button>
+
+          <button
+            id="cloudAvatarButton"
+            class="side-control cloud-control"
+            type="button"
+            aria-label="关闭云端人物动画"
+            aria-pressed="true"
+          >
+            <span class="cloud-glyph" aria-hidden="true"></span>
+            <span id="cloudButtonStatus" class="control-status">云端待连接</span>
+          </button>
+        </section>
+
+        <div class="state-indicator" aria-live="polite">
+          <span id="statePulse" class="state-pulse"></span>
+          <span id="avatarState">待机</span>
+        </div>
+
+        <section class="conversation" aria-live="polite">
+          <p id="userTranscript" class="user-line"></p>
+          <p id="assistantTranscript" class="assistant-line">我在，慢慢说。</p>
+        </section>
+
+        <p id="privacyNote" class="privacy-note">正在读取隐私模式…</p>
+      </section>
+    </main>
+    <script type="module" src="/app.js?v=19"></script>
+  </body>
+</html>

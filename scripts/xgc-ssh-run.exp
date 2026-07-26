@@ -1,0 +1,61 @@
+#!/usr/bin/expect -f
+
+# Run one remote diagnostic/deployment command with the existing local XGC
+# credential file. The password is never printed, copied, or installed as an
+# SSH authorized key.
+set timeout 60
+set script_dir [file dirname [file normalize [info script]]]
+set project_dir [file dirname $script_dir]
+set credential_path [file join $project_dir runtime credentials xgc-instance.json]
+
+if {$argc != 1} {
+    puts stderr "Usage: xgc-ssh-run.exp {remote command}"
+    exit 2
+}
+if {![file readable $credential_path]} {
+    puts stderr "Cloud credential file is not readable."
+    exit 2
+}
+
+set handle [open $credential_path r]
+set credential_json [read $handle]
+close $handle
+
+foreach {field pattern} {
+    host {\"ssh_domain\"[[:space:]]*:[[:space:]]*\"([^\"]+)\"}
+    port {\"ssh_port\"[[:space:]]*:[[:space:]]*\"([^\"]+)\"}
+    user {\"ssh_user\"[[:space:]]*:[[:space:]]*\"([^\"]+)\"}
+    password {\"password\"[[:space:]]*:[[:space:]]*\"([^\"]+)\"}
+} {
+    if {![regexp $pattern $credential_json _ value]} {
+        puts stderr "Cloud credential file is missing $field."
+        exit 2
+    }
+    set $field $value
+}
+unset credential_json
+
+set remote_command [lindex $argv 0]
+spawn ssh \
+    -o StrictHostKeyChecking=accept-new \
+    -o PreferredAuthentications=password \
+    -o PubkeyAuthentication=no \
+    -p $port \
+    "$user@$host" \
+    $remote_command
+
+expect {
+    -re "(?i)password:" {
+        send -- "$password\r"
+        exp_continue
+    }
+    timeout {
+        puts stderr "Cloud SSH command timed out."
+        exit 124
+    }
+    eof {}
+}
+unset password
+
+set wait_status [wait]
+exit [lindex $wait_status 3]

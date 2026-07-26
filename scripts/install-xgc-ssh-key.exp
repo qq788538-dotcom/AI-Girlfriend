@@ -1,0 +1,40 @@
+#!/usr/bin/expect -f
+
+set timeout 60
+if {$argc != 2} {
+    puts stderr "Usage: $argv0 CREDENTIALS_JSON PUBLIC_KEY_FILE"
+    exit 2
+}
+
+set credentials [lindex $argv 0]
+set public_key [lindex $argv 1]
+set json_getter {import json, sys; print(json.load(open(sys.argv[1], encoding="utf-8"))[sys.argv[2]])}
+set host [exec python3 -c $json_getter $credentials ssh_domain]
+set port [exec python3 -c $json_getter $credentials ssh_port]
+set user [exec python3 -c $json_getter $credentials ssh_user]
+set password [exec python3 -c $json_getter $credentials password]
+
+spawn ssh-copy-id \
+    -o StrictHostKeyChecking=accept-new \
+    -i $public_key \
+    -p $port \
+    "$user@$host"
+
+expect {
+    -re "(?i)are you sure you want to continue connecting" {
+        send -- "yes\r"
+        exp_continue
+    }
+    -re "(?i)password:" {
+        send -- "$password\r"
+        exp_continue
+    }
+    timeout {
+        puts stderr "Timed out while installing the SSH public key."
+        exit 1
+    }
+    eof
+}
+
+set wait_status [wait]
+exit [lindex $wait_status 3]

@@ -1,0 +1,47 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "virtual-human-realtime"
+version = "0.1.0"
+description = "OpenAI Realtime to SoulX avatar gateway built around the speech-to-speech protocol."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.115,<1",
+    "httpx>=0.28,<1",
+    "pydantic>=2.10,<3",
+    "pydantic-settings>=2.7,<3",
+    "uvicorn[standard]>=0.34,<1",
+    "websockets>=15,<17",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3,<10",
+    "pytest-asyncio>=0.25,<2",
+    "ruff>=0.9,<1",
+]
+
+[project.scripts]
+virtual-human = "virtual_human.app:main"
+virtual-human-renderer = "virtual_human.renderer_worker:main"
+virtual-human-verify-av = "virtual_human.av_verify:main"
+virtual-human-flashhead-worker = "virtual_human.flashhead_worker:main"
+virtual-human-benchmark-renderer = "virtual_human.renderer_benchmark:main"
+virtual-human-xgc = "virtual_human.xiangongyun:main"
+virtual-human-higgs = "virtual_human.higgs_server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/virtual_human"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]

@@ -1,0 +1,12 @@
+[submodule "vendor/SoulX-FlashHead"]
+	path = vendor/SoulX-FlashHead
+	url = https://github.com/Soul-AILab/SoulX-FlashHead.git
+[submodule "vendor/SoulX-LiveAct"]
+	path = vendor/SoulX-LiveAct
+	url = https://github.com/Soul-AILab/SoulX-LiveAct.git
+[submodule "vendor/speech-to-speech"]
+	path = vendor/speech-to-speech
+	url = https://github.com/huggingface/speech-to-speech.git
+[submodule "vendor/syncnet_python"]
+	path = vendor/syncnet_python
+	url = https://github.com/joonson/syncnet_python.git

@@ -1,0 +1,7 @@
+[
+  {
+    "prompt": "一个年轻女人对着手机镜头自然交谈，偶尔眨眼、轻微点头和转头，笑意随语气自然变化，动作连贯克制；保持人物身份、五官、肤色、发型、服装和背景完全一致。",
+    "cond_image": "/root/liveact-candidate/inputs/avatar-ai-girlfriend-v6.png",
+    "cond_audio": "/root/liveact-candidate/inputs/reference-female-only-complete-11s.wav"
+  }
+]

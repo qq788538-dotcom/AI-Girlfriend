@@ -1,0 +1,17 @@
+.DS_Store
+.env
+.env.local
+.env.*.local
+.pytest_cache/
+.ruff_cache/
+.venv/
+__pycache__/
+*.py[cod]
+*.key
+*.pem
+*.token
+*.log
+screenlog.*
+coverage.xml
+htmlcov/
+runtime/
