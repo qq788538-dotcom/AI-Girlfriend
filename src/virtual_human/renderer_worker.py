@@ -318,27 +318,33 @@ class LiveActOfficialBackend(RendererBackend):
                 )
             result.raise_for_status()
 
-            stream_announced = False
             while True:
                 status_response = await client.get(f"{self.demo_url}/task_status/{task_id}")
                 status_response.raise_for_status()
                 status = status_response.json()
                 if status.get("error") or status.get("status") == "failed":
                     raise RuntimeError(status.get("error") or status.get("message") or "LiveAct failed")
-                if status.get("stream_ready") and not stream_announced:
+                if status.get("is_done"):
+                    final_video = Path(str(status.get("final_video_path") or ""))
+                    if not final_video.is_file():
+                        raise RuntimeError(
+                            f"LiveAct completed without a readable final video: {final_video}"
+                        )
+                    published_video = output_dir / f"{response.response_id}.mp4"
+                    shutil.copy2(final_video, published_video)
+                    relative = published_video.relative_to(output_dir.parent.parent)
                     await emit(
                         {
-                            "type": "avatar.stream.ready",
+                            "type": "avatar.video.ready",
                             "session_id": session_id,
                             "response_id": response.response_id,
-                            "url": f"{self.demo_url}/stream/{task_id}/live.m3u8",
+                            "url": f"{base_url}/runtime/{relative.as_posix()}",
+                            "duration_ms": response.duration_ms,
                             "backend": "liveact-official",
                             "clock": "audio-master",
                             "audio_included": True,
                         }
                     )
-                    stream_announced = True
-                if status.get("is_done"):
                     await emit(
                         {
                             "type": "avatar.render.done",
