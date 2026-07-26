@@ -85,6 +85,7 @@ async def benchmark_renderer(
     chunk_ms: int,
     realtime_input: bool,
     timeout_seconds: float,
+    access_token: str = "",
 ) -> tuple[BenchmarkMetrics, dict]:
     reference = base64.b64encode(reference_path.read_bytes()).decode("ascii")
     pcm16, sample_rate = read_pcm16_wav(audio_path)
@@ -107,6 +108,11 @@ async def benchmark_renderer(
 
     async with websockets.connect(
         renderer_url,
+        additional_headers=(
+            {"Authorization": f"Bearer {access_token}"}
+            if access_token
+            else None
+        ),
         max_size=None,
         ping_interval=20,
         ping_timeout=max(20, timeout_seconds),
@@ -252,6 +258,11 @@ def main() -> None:
     parser.add_argument("--chunk-ms", type=int, default=40)
     parser.add_argument("--realtime-input", action="store_true")
     parser.add_argument("--timeout", type=float, default=900)
+    parser.add_argument(
+        "--token-file",
+        type=Path,
+        help="Read a renderer bearer token from this file without exposing it in the URL.",
+    )
     parser.add_argument("--max-first-output-ms", type=float)
     parser.add_argument("--max-post-audio-tail-ms", type=float)
     parser.add_argument("--min-realtime-factor", type=float)
@@ -263,6 +274,8 @@ def main() -> None:
         parser.error(f"Audio file does not exist: {args.audio}")
     if args.chunk_ms <= 0:
         parser.error("--chunk-ms must be positive")
+    if args.token_file is not None and not args.token_file.is_file():
+        parser.error(f"Renderer token file does not exist: {args.token_file}")
 
     try:
         metrics, probe = asyncio.run(
@@ -274,6 +287,11 @@ def main() -> None:
                 chunk_ms=args.chunk_ms,
                 realtime_input=args.realtime_input,
                 timeout_seconds=args.timeout,
+                access_token=(
+                    args.token_file.read_text().strip()
+                    if args.token_file is not None
+                    else ""
+                ),
             )
         )
     except Exception as error:
