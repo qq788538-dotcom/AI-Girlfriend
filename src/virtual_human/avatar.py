@@ -16,7 +16,13 @@ from virtual_human.timeline import AudioChunk
 
 logger = logging.getLogger(__name__)
 
-RENDERER_PING_TIMEOUT_SECONDS = 180
+# The first FlashHead CUDA/torch.compile preparation on a 48 GB 4090 D can
+# legitimately block its worker event loop for more than three minutes.  A
+# shorter WebSocket keepalive timeout disconnects the gateway just as the
+# model becomes ready and makes every cold service restart lose its first
+# answer.  Process exits still close the local socket immediately, so this
+# longer timeout only affects a genuinely hung renderer.
+RENDERER_PING_TIMEOUT_SECONDS = 600
 
 
 class AvatarSink(ABC):

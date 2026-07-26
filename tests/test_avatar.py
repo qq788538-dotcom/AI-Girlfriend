@@ -1,6 +1,10 @@
 from websockets.exceptions import ConnectionClosedError
 
-from virtual_human.avatar import MockAvatarSink, WebSocketAvatarSink
+from virtual_human.avatar import (
+    RENDERER_PING_TIMEOUT_SECONDS,
+    MockAvatarSink,
+    WebSocketAvatarSink,
+)
 from virtual_human.timeline import AudioChunk
 
 
@@ -49,3 +53,7 @@ async def test_remote_avatar_degrades_when_renderer_disconnects() -> None:
     assert event["recoverable"] is True
     assert sink._ws is None
     assert await sink._send({"type": "avatar.state"}) is False
+
+
+def test_renderer_ping_timeout_covers_flashhead_cold_compile() -> None:
+    assert RENDERER_PING_TIMEOUT_SECONDS >= 600

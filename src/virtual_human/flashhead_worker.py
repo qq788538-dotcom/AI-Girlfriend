@@ -29,6 +29,8 @@ from virtual_human.mp4_stream import ContinuousMP4Muxer, build_video_filter
 
 logger = logging.getLogger(__name__)
 
+FLASHHEAD_WS_PING_TIMEOUT_SECONDS = 600
+
 
 class FlashHeadSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_prefix="", extra="ignore")
@@ -777,7 +779,7 @@ def main() -> None:
         port=settings.port,
         reload=False,
         ws_ping_interval=20,
-        ws_ping_timeout=180,
+        ws_ping_timeout=FLASHHEAD_WS_PING_TIMEOUT_SECONDS,
     )
 
 

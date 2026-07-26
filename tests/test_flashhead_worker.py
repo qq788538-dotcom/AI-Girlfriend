@@ -3,7 +3,12 @@ from collections import deque
 
 import pytest
 
-from virtual_human.flashhead_worker import FlashHeadEngine, FlashHeadSettings, StreamingResponse
+from virtual_human.flashhead_worker import (
+    FLASHHEAD_WS_PING_TIMEOUT_SECONDS,
+    FlashHeadEngine,
+    FlashHeadSettings,
+    StreamingResponse,
+)
 
 
 def _append_event(chunk_index: int, samples: int = 960) -> dict[str, object]:
@@ -23,6 +28,10 @@ def test_streaming_response_validates_monotonic_pcm_chunks() -> None:
 
     with pytest.raises(ValueError, match="Expected chunk 1"):
         response.append(_append_event(2))
+
+
+def test_flashhead_server_ping_timeout_covers_cold_compile() -> None:
+    assert FLASHHEAD_WS_PING_TIMEOUT_SECONDS >= 600
 
 
 def test_flashhead_lite_uses_about_one_second_input_slices() -> None:
