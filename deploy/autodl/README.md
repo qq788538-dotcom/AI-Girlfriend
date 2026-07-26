@@ -58,12 +58,12 @@ listener to `127.0.0.1:5001`. On one GPU it runs directly without a distributed
 rendezvous port. The protocol wrapper also remains loopback-only on
 `127.0.0.1:8772`.
 
-The launcher defaults to the PyTorch SDPA compatibility backend
-(`VH_LIVEACT_FORCE_SDPA=1`), a 352x640 test canvas (`VH_LIVEACT_SIZE`), and
-PyTorch expandable CUDA allocator segments. These defaults avoid binary
-FlashAttention/GLIBC coupling and leave warmup headroom on a 32 GB RTX 5090
-while keeping all inference local. Set the backend variable to `0` only after
-a native FlashAttention build has been validated on the target GPU.
+The launcher defaults to native FlashAttention
+(`VH_LIVEACT_FORCE_SDPA=0`), the official 416x720 canvas
+(`VH_LIVEACT_SIZE`), and PyTorch expandable CUDA allocator segments. The
+PyTorch SDPA compatibility path remains available by setting the backend
+variable to `1`, for example when the target image lacks a validated native
+FlashAttention wheel.
 
 ```bash
 deploy/autodl/liveact-control.sh start

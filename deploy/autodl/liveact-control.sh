@@ -86,7 +86,7 @@ start_services() {
         cd "$LIVEACT_DIR"
         nohup env \
             VH_AUTODL_PROJECT_DIR="$PROJECT_DIR" \
-            VH_LIVEACT_FORCE_SDPA="${VH_LIVEACT_FORCE_SDPA:-1}" \
+            VH_LIVEACT_FORCE_SDPA="${VH_LIVEACT_FORCE_SDPA:-0}" \
             PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}" \
             USE_CHANNELS_LAST_3D=1 \
             CUDA_VISIBLE_DEVICES=0 \
@@ -94,7 +94,7 @@ start_services() {
             "$PROJECT_DIR/deploy/autodl/liveact_demo_launcher.py" \
             --ckpt_dir "$MODEL_DIR" \
             --wav2vec_dir "$WAV2VEC_DIR" \
-            --size "${VH_LIVEACT_SIZE:-352*640}" \
+            --size "${VH_LIVEACT_SIZE:-416*720}" \
             --port 5001 \
             --fp8_kv_cache \
             --block_offload \
