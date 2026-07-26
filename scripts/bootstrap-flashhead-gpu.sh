@@ -89,11 +89,15 @@ fi
 run_python -m pip install -e "$PROJECT_DIR"
 run_python -m pip install "huggingface_hub[cli]"
 
-if [ ! -f "$MODEL_DIR/Model_Lite/diffusion_pytorch_model.safetensors" ] || \
-    [ ! -f "$MODEL_DIR/VAE_LTX/diffusion_pytorch_model.safetensors" ]; then
+if [ ! -f "$MODEL_DIR/Model_Lite/diffusion_pytorch_model.safetensors" ]; then
     run_tool hf download \
         Soul-AILab/SoulX-FlashHead-1_3B \
         --include "Model_Lite/*" \
+        --local-dir "$MODEL_DIR"
+fi
+if [ ! -f "$MODEL_DIR/VAE_LTX/diffusion_pytorch_model.safetensors" ]; then
+    run_tool hf download \
+        Soul-AILab/SoulX-FlashHead-1_3B \
         --include "VAE_LTX/*" \
         --local-dir "$MODEL_DIR"
 fi
