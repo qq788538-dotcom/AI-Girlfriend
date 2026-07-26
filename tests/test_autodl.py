@@ -15,6 +15,7 @@ def test_autodl_uses_public_port_6006_and_keeps_models_loopback_only() -> None:
 
 
 def test_autodl_control_reuses_the_locked_xiangongyun_runtime() -> None:
+    bootstrap = (AUTODL / "bootstrap.sh").read_text(encoding="utf-8")
     control = (AUTODL / "control.sh").read_text(encoding="utf-8")
     autostart = (AUTODL / "autostart.sh").read_text(encoding="utf-8")
 
@@ -24,6 +25,8 @@ def test_autodl_control_reuses_the_locked_xiangongyun_runtime() -> None:
     assert "flock -n 9" in autostart
     assert "deploy/autodl/control.sh status" in autostart
     assert "deploy/autodl/control.sh start" in autostart
+    assert "libsox-dev" in bootstrap
+    assert "\n    sox" in bootstrap
 
 
 def test_liveact_defaults_to_native_flash_attention_with_sdpa_fallback() -> None:

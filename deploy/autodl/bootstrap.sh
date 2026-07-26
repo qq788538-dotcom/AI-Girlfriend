@@ -17,10 +17,12 @@ apt-get install -y \
     ffmpeg \
     git \
     jq \
+    libsox-dev \
     openssl \
     python3-venv \
     rsync \
-    screen
+    screen \
+    sox
 
 if [ ! -f "$script_dir/runtime.env" ]; then
     cp "$script_dir/env.example" "$script_dir/runtime.env"
