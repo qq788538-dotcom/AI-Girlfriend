@@ -206,7 +206,6 @@ class Settings(BaseSettings):
             verify_locked_avatar(Path(self.avatar_reference).expanduser())
         if self.voice_profile_locked:
             voice_profile = (
-                self.resolved_tts_base_url,
                 self.omlx_tts_model,
                 self.omlx_tts_ref_audio,
                 self.omlx_tts_ref_text,
@@ -217,7 +216,6 @@ class Settings(BaseSettings):
                 self.tts_top_k,
             )
             approved_profile = (
-                LOCKED_TTS_BASE_URL,
                 LOCKED_TTS_MODEL,
                 "",
                 "",

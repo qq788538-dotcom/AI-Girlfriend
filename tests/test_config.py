@@ -105,3 +105,12 @@ def test_locked_voice_rejects_unapproved_or_noisy_reference() -> None:
             VH_OMLX_TTS_REF_AUDIO="noisy.wav",
             VH_OMLX_TTS_REF_TEXT="参考台词。",
         )
+
+
+def test_locked_voice_allows_only_the_service_endpoint_to_move() -> None:
+    settings = Settings(
+        _env_file=None,
+        VH_TTS_BASE_URL="https://private-higgs.example/v1",
+    )
+
+    assert settings.resolved_tts_base_url == "https://private-higgs.example/v1"
