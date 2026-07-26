@@ -130,7 +130,8 @@ require_loopback() {
     name="$1"
     endpoint="$2"
     case "$endpoint" in
-        http://127.0.0.1/*|http://localhost/*|ws://127.0.0.1/*|ws://localhost/*) ;;
+        http://127.0.0.1/*|http://127.0.0.1:*|http://localhost/*|http://localhost:*|\
+        ws://127.0.0.1/*|ws://127.0.0.1:*|ws://localhost/*|ws://localhost:*) ;;
         *)
             echo "Offline runtime requires loopback-only $name: $endpoint" >&2
             exit 1

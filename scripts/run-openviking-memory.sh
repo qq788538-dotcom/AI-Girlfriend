@@ -27,14 +27,14 @@ write_config() {
         llm_base="${VH_MEMORY_VLM_BASE_URL:-http://127.0.0.1:8000/v1}"
         llm_model="${VH_MEMORY_VLM_MODEL:-Qwen3.6-35B-A3B-AWQ}"
         case "$embedding_base" in
-            http://127.0.0.1/*|http://localhost/*) ;;
+            http://127.0.0.1/*|http://127.0.0.1:*|http://localhost/*|http://localhost:*) ;;
             *)
                 echo "Local-only memory requires a loopback embedding endpoint" >&2
                 exit 1
                 ;;
         esac
         case "$llm_base" in
-            http://127.0.0.1/*|http://localhost/*) ;;
+            http://127.0.0.1/*|http://127.0.0.1:*|http://localhost/*|http://localhost:*) ;;
             *)
                 echo "Local-only memory requires a loopback VLM endpoint" >&2
                 exit 1
