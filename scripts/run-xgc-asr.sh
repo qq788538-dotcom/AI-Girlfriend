@@ -8,7 +8,7 @@ host="${VH_ASR_HOST:-127.0.0.1}"
 port="${VH_ASR_PORT:-8001}"
 
 test -x "$venv/bin/virtual-human-asr"
-test -f "$model_path/model.safetensors"
+test -s "$model_path/model.safetensors"
 
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1

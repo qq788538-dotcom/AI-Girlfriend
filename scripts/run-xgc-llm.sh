@@ -11,7 +11,17 @@ gpu_utilization="${VH_LLM_GPU_MEMORY_UTILIZATION:-0.455}"
 max_model_len="${VH_LLM_MAX_MODEL_LEN:-4096}"
 
 test -x "$venv/bin/vllm"
-test -f "$model_path/model.safetensors.index.json"
+"$venv/bin/python" -c '
+import json
+import pathlib
+import sys
+
+index = pathlib.Path(sys.argv[1])
+payload = json.loads(index.read_text())
+files = set(payload.get("weight_map", {}).values())
+if not files or any(not (index.parent / name).is_file() or (index.parent / name).stat().st_size == 0 for name in files):
+    raise SystemExit("LLM snapshot is incomplete")
+' "$model_path/model.safetensors.index.json"
 
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1

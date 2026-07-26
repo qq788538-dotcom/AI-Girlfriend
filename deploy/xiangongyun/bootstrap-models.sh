@@ -13,6 +13,7 @@ models_dir="$project_dir/runtime/models"
 vllm_version="${VH_VLLM_VERSION:-0.19.1}"
 vllm_omni_version="${VH_VLLM_OMNI_VERSION:-0.24.0}"
 openviking_version="${OPENVIKING_VERSION:-0.4.11}"
+model_download_attempts="${VH_MODEL_DOWNLOAD_ATTEMPTS:-20}"
 
 if [ "$(uname -s)" != "Linux" ] || ! command -v nvidia-smi >/dev/null 2>&1; then
     echo "Local model bootstrap requires a Linux CUDA instance." >&2
@@ -30,7 +31,35 @@ if [ ! -x "$bootstrap_venv/bin/uv" ]; then
     "$bootstrap_venv/bin/pip" install --upgrade pip uv
 fi
 uv="$bootstrap_venv/bin/uv"
+if [ ! -x "$bootstrap_venv/bin/modelscope" ]; then
+    "$uv" pip install \
+        --python "$bootstrap_venv/bin/python" \
+        modelscope
+fi
+modelscope="$bootstrap_venv/bin/modelscope"
 "$uv" python install 3.12
+
+snapshot_complete() {
+    target="$1"
+    marker="$2"
+    marker_path="$target/$marker"
+    [ -s "$marker_path" ] || return 1
+    case "$marker" in
+        *.index.json)
+            "$bootstrap_venv/bin/python" -c '
+import json
+import pathlib
+import sys
+
+index = pathlib.Path(sys.argv[1])
+payload = json.loads(index.read_text())
+files = set(payload.get("weight_map", {}).values())
+if not files or any(not (index.parent / name).is_file() or (index.parent / name).stat().st_size == 0 for name in files):
+    raise SystemExit(1)
+' "$marker_path"
+            ;;
+    esac
+}
 
 ensure_venv() {
     target="$1"
@@ -84,16 +113,49 @@ download_model() {
     repo="$1"
     target="$2"
     marker="$3"
-    if [ ! -f "$target/$marker" ]; then
-        "$hf" download "$repo" --local-dir "$target"
-    fi
+    attempt=1
+    while ! snapshot_complete "$target" "$marker"; do
+        echo "Downloading $repo (attempt $attempt/$model_download_attempts)"
+        if "$hf" download "$repo" --local-dir "$target" &&
+            snapshot_complete "$target" "$marker"; then
+            break
+        fi
+        if [ "$attempt" -ge "$model_download_attempts" ]; then
+            echo "Model download did not complete after $attempt attempts: $repo" >&2
+            exit 1
+        fi
+        attempt=$((attempt + 1))
+        sleep 5
+    done
+}
+
+download_modelscope_model() {
+    repo="$1"
+    target="$2"
+    marker="$3"
+    attempt=1
+    while ! snapshot_complete "$target" "$marker"; do
+        echo "Downloading $repo from ModelScope (attempt $attempt/$model_download_attempts)"
+        if "$modelscope" download "$repo" \
+            --local-dir "$target" \
+            --max-workers 4 &&
+            snapshot_complete "$target" "$marker"; then
+            break
+        fi
+        if [ "$attempt" -ge "$model_download_attempts" ]; then
+            echo "ModelScope download did not complete after $attempt attempts: $repo" >&2
+            exit 1
+        fi
+        attempt=$((attempt + 1))
+        sleep 5
+    done
 }
 
 download_model \
     mattbucci/Qwen3.6-35B-A3B-AWQ \
     "$models_dir/Qwen3.6-35B-A3B-AWQ" \
     model.safetensors.index.json
-download_model \
+download_modelscope_model \
     Qwen/Qwen3-ASR-0.6B \
     "$models_dir/Qwen3-ASR-0.6B" \
     model.safetensors
@@ -101,7 +163,7 @@ download_model \
     bosonai/higgs-tts-3-4b \
     "$models_dir/higgs-tts-3-4b" \
     model.safetensors
-download_model \
+download_modelscope_model \
     Qwen/Qwen3-Embedding-0.6B \
     "$models_dir/Qwen3-Embedding-0.6B" \
     model.safetensors

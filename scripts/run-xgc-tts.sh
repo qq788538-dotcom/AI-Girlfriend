@@ -9,7 +9,7 @@ port="${VH_TTS_PORT:-8010}"
 stage_overrides="${VH_TTS_STAGE_OVERRIDES:-{\"0\":{\"gpu_memory_utilization\":0.27,\"max_num_seqs\":1},\"1\":{\"gpu_memory_utilization\":0.05,\"max_num_seqs\":1}}}"
 
 test -x "$venv/bin/vllm-omni"
-test -f "$model_path/model.safetensors"
+test -s "$model_path/model.safetensors"
 
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1

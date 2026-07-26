@@ -8,7 +8,7 @@ host="${VH_EMBEDDING_HOST:-127.0.0.1}"
 port="${VH_EMBEDDING_PORT:-8002}"
 
 test -x "$venv/bin/virtual-human-embedding"
-test -f "$model_path/model.safetensors"
+test -s "$model_path/model.safetensors"
 
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1

@@ -24,6 +24,14 @@ done
 cd "$project_dir"
 git submodule update --init --recursive
 
+# Xiangongyun's international package routes can occasionally reset long
+# downloads. Give pip and uv enough time and retries to resume large CUDA
+# wheels instead of leaving a partially provisioned environment.
+export PIP_RETRIES="${PIP_RETRIES:-50}"
+export PIP_DEFAULT_TIMEOUT="${PIP_DEFAULT_TIMEOUT:-300}"
+export UV_HTTP_RETRIES="${UV_HTTP_RETRIES:-20}"
+export UV_HTTP_TIMEOUT="${UV_HTTP_TIMEOUT:-300}"
+
 if [ ! -f "$voice_reference" ]; then
     echo "Locked Higgs reference is missing: $voice_reference" >&2
     echo "Upload it through SSH; it is intentionally excluded from the public Git repository." >&2
