@@ -862,8 +862,8 @@ function processLocalVadChunk(samples, audio, probabilities) {
     ? Math.max(0.024, state.localVadNoiseFloor * 4.5)
     : Math.max(0.009, state.localVadNoiseFloor * 2.5);
   const energyEndThreshold = assistantActive
-    ? Math.max(0.016, state.localVadNoiseFloor * 3.2)
-    : Math.max(0.006, state.localVadNoiseFloor * 1.7);
+    ? Math.max(0.02, state.localVadNoiseFloor * 4)
+    : Math.max(0.008, state.localVadNoiseFloor * 2.5);
   const energyDetected =
     rms >= (state.localVadSpeaking ? energyEndThreshold : energyStartThreshold);
 
@@ -1028,7 +1028,10 @@ function releaseHalfDuplexIfIdle() {
   if (
     state.upstreamMode !== "omlx" ||
     state.clientConfig.barge_in_enabled ||
-    assistantIsActive()
+    assistantIsActive() ||
+    !state.localVadBlocked ||
+    state.localVadSpeaking ||
+    state.localVadBargeInChecking
   ) {
     return;
   }

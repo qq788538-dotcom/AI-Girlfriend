@@ -68,6 +68,9 @@ def test_two_controls_support_toggle_and_hold_to_talk() -> None:
     assert "beginHoldToTalk" in javascript
     assert "endHoldToTalk" in javascript
     assert "releaseHalfDuplexIfIdle" in javascript
+    assert "!state.localVadBlocked" in javascript
+    assert "state.localVadSpeaking" in javascript
+    assert "state.localVadBargeInChecking" in javascript
     assert 'if (nextState === "listening")' in javascript
     assert "holdToTalkChunks" in javascript
     assert 'elements.userTranscript.textContent = "正在录音，松开发送…"' in javascript
@@ -89,6 +92,7 @@ def test_two_controls_support_toggle_and_hold_to_talk() -> None:
     assert "state.localVadEnergySpeechMs >= 120" in javascript
     assert '"energy-rescue"' in javascript
     assert "dataset.vadProbability" in javascript
+    assert "Math.max(0.008, state.localVadNoiseFloor * 2.5)" in javascript
     assert 'type: "response.create"' not in javascript
 
 
@@ -98,7 +102,7 @@ def test_right_cloud_avatar_button_persists_and_reconnects_mode() -> None:
 
     assert 'id="cloudAvatarButton"' in html
     assert 'id="cloudButtonStatus"' in html
-    assert 'src="/app.js?v=21"' in html
+    assert 'src="/app.js?v=23"' in html
     assert 'src="/hls.min.js?v=1.6.16"' in html
     assert 'href="/styles.css?v=11"' in html
     assert 'localStorage.getItem("cloudAvatarEnabled")' in javascript
@@ -137,7 +141,7 @@ def test_cloud_renderer_failure_switches_to_browser_audio() -> None:
     html = (PUBLIC / "index.html").read_text(encoding="utf-8")
     javascript = (PUBLIC / "app.js").read_text(encoding="utf-8")
 
-    assert 'src="/app.js?v=21"' in html
+    assert 'src="/app.js?v=23"' in html
     assert 'case "avatar.fallback":' in javascript
     assert 'state.playbackOwner = "browser"' in javascript
     assert 'elements.playbackMetric.textContent = "浏览器 PCM"' in javascript
