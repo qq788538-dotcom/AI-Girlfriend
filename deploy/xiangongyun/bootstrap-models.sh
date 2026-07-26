@@ -86,7 +86,13 @@ if [ ! -x "$asr_venv/bin/virtual-human-asr" ]; then
 fi
 
 ensure_venv "$tts_venv"
-if [ ! -x "$tts_venv/bin/vllm-omni" ]; then
+if ! "$tts_venv/bin/python" -c \
+    "import vllm, vllm_omni; assert vllm.__version__ == '$vllm_omni_version'" \
+    >/dev/null 2>&1; then
+    "$uv" pip install \
+        --python "$tts_venv/bin/python" \
+        "vllm==$vllm_omni_version" \
+        --torch-backend=auto
     "$uv" pip install \
         --python "$tts_venv/bin/python" \
         "vllm-omni==$vllm_omni_version"

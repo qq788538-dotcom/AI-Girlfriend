@@ -169,7 +169,7 @@ validate_start() {
         "$project_dir/.venv-gpu/bin/virtual-human" \
         "$project_dir/.venv-vllm/bin/vllm" \
         "$project_dir/.venv-asr/bin/virtual-human-asr" \
-        "$project_dir/.venv-vllm-omni/bin/vllm-omni" \
+        "$project_dir/.venv-vllm-omni/bin/vllm" \
         "$project_dir/.venv-embedding/bin/virtual-human-embedding" \
         "$OPENVIKING_SERVER_BIN"; do
         if [ ! -x "$executable" ]; then
