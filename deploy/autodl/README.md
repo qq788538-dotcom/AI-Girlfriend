@@ -59,9 +59,11 @@ rendezvous port. The protocol wrapper also remains loopback-only on
 `127.0.0.1:8772`.
 
 The launcher defaults to the PyTorch SDPA compatibility backend
-(`VH_LIVEACT_FORCE_SDPA=1`). This avoids binary FlashAttention/GLIBC coupling
-on AutoDL images while keeping all inference local. Set the variable to `0`
-only after a native FlashAttention build has been validated on the target GPU.
+(`VH_LIVEACT_FORCE_SDPA=1`), a 352x640 test canvas (`VH_LIVEACT_SIZE`), and
+PyTorch expandable CUDA allocator segments. These defaults avoid binary
+FlashAttention/GLIBC coupling and leave warmup headroom on a 32 GB RTX 5090
+while keeping all inference local. Set the backend variable to `0` only after
+a native FlashAttention build has been validated on the target GPU.
 
 ```bash
 deploy/autodl/liveact-control.sh start

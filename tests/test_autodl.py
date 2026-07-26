@@ -31,6 +31,8 @@ def test_liveact_can_force_the_pytorch_sdpa_compatibility_backend() -> None:
     launcher = (AUTODL / "liveact_demo_launcher.py").read_text(encoding="utf-8")
 
     assert 'VH_LIVEACT_FORCE_SDPA="${VH_LIVEACT_FORCE_SDPA:-1}"' in control
+    assert 'PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"' in control
+    assert '--size "${VH_LIVEACT_SIZE:-352*640}"' in control
     assert 'sys.modules["flash_attn"] = None' in launcher
     assert "scaled_dot_product_attention" in launcher
     assert "attention_module.flash_attention = sdpa_attention" in launcher
