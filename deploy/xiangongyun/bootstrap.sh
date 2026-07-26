@@ -3,8 +3,6 @@ set -eu
 
 script_dir="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
 project_dir="${VH_XGC_PROJECT_DIR:-$(CDPATH= cd -- "$script_dir/../.." && pwd)}"
-memory_venv="$project_dir/.venv-openviking"
-openviking_version="${OPENVIKING_VERSION:-0.4.11}"
 voice_reference="$project_dir/runtime/voice-calibration/reference-female-only-complete-11s.wav"
 voice_reference_sha256="b01ccb2c0ad5427f1478219b96dfba0d27e12bad281a81da46fed470a83630d4"
 
@@ -40,11 +38,7 @@ fi
 export VH_GPU_PROJECT_DIR="$project_dir"
 "$project_dir/scripts/bootstrap-flashhead-gpu.sh"
 
-if [ ! -x "$memory_venv/bin/python" ]; then
-    python3 -m venv "$memory_venv"
-fi
-"$memory_venv/bin/python" -m pip install --upgrade pip wheel setuptools
-"$memory_venv/bin/python" -m pip install "openviking==$openviking_version"
+"$script_dir/bootstrap-models.sh"
 
 credentials_dir="$project_dir/runtime/credentials"
 renderer_token="$credentials_dir/avatar-renderer.token"

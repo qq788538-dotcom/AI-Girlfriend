@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -16,6 +17,7 @@ from virtual_human.voice_profile import (
     LOCKED_TTS_TEMPERATURE,
     LOCKED_TTS_TOP_K,
     LOCKED_TTS_TOP_P,
+    LOCKED_VOICE_REFERENCE_TEXT,
     verify_locked_voice_reference,
 )
 
@@ -39,7 +41,9 @@ class Settings(BaseSettings):
     openai_realtime_url: str = Field("wss://api.openai.com/v1/realtime", alias="VH_OPENAI_REALTIME_URL")
     openai_voice: str = Field("marin", alias="VH_OPENAI_VOICE")
     omlx_base_url: str = Field("http://127.0.0.1:8000/v1", alias="VH_OMLX_BASE_URL")
+    asr_base_url: str = Field("", alias="VH_ASR_BASE_URL")
     tts_base_url: str = Field(LOCKED_TTS_BASE_URL, alias="VH_TTS_BASE_URL")
+    offline_runtime: bool = Field(False, alias="VH_OFFLINE_RUNTIME")
     voice_profile_locked: bool = Field(True, alias="VH_VOICE_PROFILE_LOCKED")
     omlx_api_key: str = Field("", alias="VH_OMLX_API_KEY")
     omlx_settings_path: Path = Field(Path("~/.omlx/settings.json"), alias="VH_OMLX_SETTINGS_PATH")
@@ -106,6 +110,11 @@ class Settings(BaseSettings):
         "full",
         alias="VH_TTS_STREAMING_MODE",
     )
+    tts_protocol: Literal["openai", "sglang_higgs", "vllm_omni_higgs"] = Field(
+        "openai",
+        alias="VH_TTS_PROTOCOL",
+    )
+    tts_served_model: str = Field("higgs_audio_v3", alias="VH_TTS_SERVED_MODEL")
     tts_streaming_interval: float = Field(
         0.8,
         ge=0.2,
@@ -207,8 +216,6 @@ class Settings(BaseSettings):
         if self.voice_profile_locked:
             voice_profile = (
                 self.omlx_tts_model,
-                self.omlx_tts_ref_audio,
-                self.omlx_tts_ref_text,
                 self.omlx_tts_temperature,
                 self.omlx_tts_top_p,
                 self.tts_flow_mode,
@@ -217,8 +224,6 @@ class Settings(BaseSettings):
             )
             approved_profile = (
                 LOCKED_TTS_MODEL,
-                "",
-                "",
                 LOCKED_TTS_TEMPERATURE,
                 LOCKED_TTS_TOP_P,
                 LOCKED_TTS_FLOW_MODE,
@@ -229,11 +234,35 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "Voice profile is locked. Refusing an unapproved TTS model or reference."
                 )
-            verify_locked_voice_reference()
+            if self.omlx_tts_ref_audio:
+                if self.omlx_tts_ref_text != LOCKED_VOICE_REFERENCE_TEXT:
+                    raise ValueError(
+                        "Voice profile is locked. Refusing an unapproved TTS reference transcript."
+                    )
+                verify_locked_voice_reference(Path(self.omlx_tts_ref_audio).expanduser())
+            else:
+                verify_locked_voice_reference()
         if bool(self.omlx_tts_ref_audio) != bool(self.omlx_tts_ref_text):
             raise ValueError(
                 "VH_OMLX_TTS_REF_AUDIO and VH_OMLX_TTS_REF_TEXT must be configured together"
             )
+        if self.offline_runtime:
+            if self.upstream_mode != "omlx" or self.chat_backend != "omlx":
+                raise ValueError(
+                    "Offline runtime requires VH_UPSTREAM_MODE=omlx and VH_CHAT_BACKEND=omlx"
+                )
+            local_endpoints = {
+                "VH_OMLX_BASE_URL": self.omlx_base_url,
+                "VH_ASR_BASE_URL": self.resolved_asr_base_url,
+                "VH_TTS_BASE_URL": self.resolved_tts_base_url,
+            }
+            if self.memory_enabled:
+                local_endpoints["VH_MEMORY_BASE_URL"] = self.memory_base_url
+            if self.avatar_renderer_ws:
+                local_endpoints["VH_AVATAR_RENDERER_WS"] = self.avatar_renderer_ws
+            for name, endpoint in local_endpoints.items():
+                if urlsplit(endpoint).hostname not in {"127.0.0.1", "localhost", "::1"}:
+                    raise ValueError(f"Offline runtime requires a loopback-only {name}")
         return self
 
     @property
@@ -259,6 +288,10 @@ class Settings(BaseSettings):
     @property
     def resolved_tts_base_url(self) -> str:
         return self.tts_base_url or self.omlx_base_url
+
+    @property
+    def resolved_asr_base_url(self) -> str:
+        return self.asr_base_url or self.omlx_base_url
 
     def resolved_avatar_renderer_token(self) -> str:
         if not self.avatar_renderer_token_file:

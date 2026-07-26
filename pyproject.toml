@@ -11,6 +11,7 @@ requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.115,<1",
     "httpx>=0.28,<1",
+    "python-multipart>=0.0.20,<1",
     "pydantic>=2.10,<3",
     "pydantic-settings>=2.7,<3",
     "uvicorn[standard]>=0.34,<1",
@@ -32,6 +33,8 @@ virtual-human-flashhead-worker = "virtual_human.flashhead_worker:main"
 virtual-human-benchmark-renderer = "virtual_human.renderer_benchmark:main"
 virtual-human-xgc = "virtual_human.xiangongyun:main"
 virtual-human-higgs = "virtual_human.higgs_server:main"
+virtual-human-embedding = "virtual_human.embedding_server:main"
+virtual-human-asr = "virtual_human.asr_server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/virtual_human"]

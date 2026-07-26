@@ -2,6 +2,10 @@ import pytest
 from pydantic import ValidationError
 
 from virtual_human.config import Settings
+from virtual_human.voice_profile import (
+    LOCKED_VOICE_REFERENCE,
+    LOCKED_VOICE_REFERENCE_TEXT,
+)
 
 
 def test_client_persona_and_voice_are_environment_configurable() -> None:
@@ -114,3 +118,48 @@ def test_locked_voice_allows_only_the_service_endpoint_to_move() -> None:
     )
 
     assert settings.resolved_tts_base_url == "https://private-higgs.example/v1"
+
+
+def test_locked_voice_allows_the_verified_reference_on_same_host() -> None:
+    settings = Settings(
+        _env_file=None,
+        VH_OMLX_TTS_REF_AUDIO=str(LOCKED_VOICE_REFERENCE),
+        VH_OMLX_TTS_REF_TEXT=LOCKED_VOICE_REFERENCE_TEXT,
+        VH_TTS_PROTOCOL="vllm_omni_higgs",
+    )
+
+    assert settings.omlx_tts_ref_text == LOCKED_VOICE_REFERENCE_TEXT
+    assert settings.tts_protocol == "vllm_omni_higgs"
+
+
+def test_offline_runtime_accepts_only_loopback_model_services() -> None:
+    settings = Settings(
+        _env_file=None,
+        VH_VOICE_PROFILE_LOCKED=False,
+        VH_OFFLINE_RUNTIME=True,
+        VH_UPSTREAM_MODE="omlx",
+        VH_CHAT_BACKEND="omlx",
+        VH_OMLX_BASE_URL="http://127.0.0.1:8000/v1",
+        VH_ASR_BASE_URL="http://127.0.0.1:8001/v1",
+        VH_TTS_BASE_URL="http://127.0.0.1:8010/v1",
+        VH_MEMORY_ENABLED=True,
+        VH_MEMORY_BASE_URL="http://127.0.0.1:1934",
+        VH_AVATAR_RENDERER_WS="ws://127.0.0.1:8770/avatar",
+    )
+
+    assert settings.offline_runtime is True
+    assert settings.resolved_asr_base_url == "http://127.0.0.1:8001/v1"
+
+
+def test_offline_runtime_rejects_external_inference_endpoint() -> None:
+    with pytest.raises(ValidationError, match="loopback-only VH_ASR_BASE_URL"):
+        Settings(
+            _env_file=None,
+            VH_VOICE_PROFILE_LOCKED=False,
+            VH_OFFLINE_RUNTIME=True,
+            VH_UPSTREAM_MODE="omlx",
+            VH_CHAT_BACKEND="omlx",
+            VH_OMLX_BASE_URL="http://127.0.0.1:8000/v1",
+            VH_ASR_BASE_URL="https://speech.example/v1",
+            VH_TTS_BASE_URL="http://127.0.0.1:8010/v1",
+        )

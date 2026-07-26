@@ -24,6 +24,7 @@ async def healthz() -> JSONResponse:
     return JSONResponse(
         {
             "status": "ok",
+            "offline_runtime": settings.offline_runtime,
             "upstream_mode": settings.upstream_mode,
             "chat_backend": settings.chat_backend,
             "model": (
@@ -47,8 +48,13 @@ async def healthz() -> JSONResponse:
                 "locked": settings.voice_profile_locked,
                 "model": settings.omlx_tts_model,
                 "backend": settings.resolved_tts_base_url,
+                "protocol": settings.tts_protocol,
                 "flow": settings.tts_flow_mode,
                 "seed": settings.tts_seed,
+            },
+            "asr": {
+                "model": settings.omlx_stt_model,
+                "backend": settings.resolved_asr_base_url,
             },
             "memory": {
                 "enabled": settings.memory_enabled,

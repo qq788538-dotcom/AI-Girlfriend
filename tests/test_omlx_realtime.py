@@ -507,6 +507,93 @@ async def test_memory_fact_is_injected_and_committed_after_each_turn() -> None:
     await session.close()
 
 
+async def test_sglang_higgs_uses_locked_server_local_reference(tmp_path) -> None:
+    observed: list[httpx.Request] = []
+    reference_audio = tmp_path / "reference.wav"
+    reference_audio.write_bytes(b"reference-audio")
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        observed.append(request)
+        return httpx.Response(
+            200,
+            content=_pcm16_wav(b"\x00\x00" * 2400, 24_000),
+            headers={"content-type": "audio/wav"},
+        )
+
+    settings = Settings(
+        _env_file=None,
+        VH_VOICE_PROFILE_LOCKED=False,
+        VH_UPSTREAM_MODE="omlx",
+        VH_OMLX_BASE_URL="http://llm.test/v1",
+        VH_TTS_BASE_URL="http://tts.test/v1",
+        VH_TTS_PROTOCOL="sglang_higgs",
+        VH_OMLX_TTS_REF_AUDIO=str(reference_audio),
+        VH_OMLX_TTS_REF_TEXT="参考台词。",
+    )
+    session = OMLXRealtimeSession(settings, transport=httpx.MockTransport(handler))
+
+    chunks = [chunk async for chunk in session._synthesize_stream("你回来啦。")]
+
+    assert chunks
+    request = observed[0]
+    assert request.url.host == "tts.test"
+    payload = json.loads(request.content)
+    assert payload["stream"] is False
+    assert payload["references"] == [
+        {
+            "audio_path": str(reference_audio.resolve()),
+            "text": "参考台词。",
+        }
+    ]
+    assert "model" not in payload
+    assert "ref_audio" not in payload
+    await session.close()
+
+
+async def test_vllm_omni_higgs_uses_data_url_reference(tmp_path) -> None:
+    observed: list[httpx.Request] = []
+    reference_audio = tmp_path / "reference.wav"
+    reference_audio.write_bytes(b"reference-audio")
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        observed.append(request)
+        return httpx.Response(
+            200,
+            content=_pcm16_wav(b"\x00\x00" * 2400, 24_000),
+            headers={"content-type": "audio/wav"},
+        )
+
+    settings = Settings(
+        _env_file=None,
+        VH_VOICE_PROFILE_LOCKED=False,
+        VH_UPSTREAM_MODE="omlx",
+        VH_OMLX_BASE_URL="http://llm.test/v1",
+        VH_TTS_BASE_URL="http://tts.test/v1",
+        VH_TTS_PROTOCOL="vllm_omni_higgs",
+        VH_TTS_SERVED_MODEL="higgs_audio_v3",
+        VH_OMLX_TTS_REF_AUDIO=str(reference_audio),
+        VH_OMLX_TTS_REF_TEXT="参考台词。",
+        VH_TTS_SEED=20260817,
+    )
+    session = OMLXRealtimeSession(settings, transport=httpx.MockTransport(handler))
+
+    chunks = [chunk async for chunk in session._synthesize_stream("你回来啦。")]
+
+    assert chunks
+    payload = json.loads(observed[0].content)
+    assert payload["model"] == "higgs_audio_v3"
+    assert payload["stream"] is False
+    assert payload["response_format"] == "wav"
+    assert payload["seed"] == 20260817
+    assert payload["ref_audio"] == (
+        "data:audio/wav;base64,"
+        + base64.b64encode(b"reference-audio").decode("ascii")
+    )
+    assert payload["ref_text"] == "参考台词。"
+    assert "references" not in payload
+    await session.close()
+
+
 async def test_short_filler_noise_does_not_trigger_a_chat_reply() -> None:
     observed: list[httpx.Request] = []
 
@@ -548,4 +635,25 @@ async def test_short_filler_noise_does_not_trigger_a_chat_reply() -> None:
     ]
     assert len(observed) == 1
     assert observed[0].url.path.endswith("/audio/transcriptions")
+    await session.close()
+
+
+async def test_asr_can_use_a_separate_local_service() -> None:
+    observed: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        observed.append(request)
+        return httpx.Response(200, json={"text": "单独的本地语音识别。"})
+
+    settings = Settings(
+        _env_file=None,
+        VH_VOICE_PROFILE_LOCKED=False,
+        VH_UPSTREAM_MODE="omlx",
+        VH_OMLX_BASE_URL="http://llm.test/v1",
+        VH_ASR_BASE_URL="http://asr.test/v1",
+    )
+    session = OMLXRealtimeSession(settings, transport=httpx.MockTransport(handler))
+
+    assert await session._transcribe(b"\x00\x00" * 2400) == "单独的本地语音识别。"
+    assert observed[0].url.host == "asr.test"
     await session.close()

@@ -279,15 +279,24 @@ class OMLXRealtimeSession:
             )
             self._memory_session_enabled = True
         self._tts_ref_audio: str | None = None
+        self._tts_reference_path: str | None = None
         if settings.omlx_tts_ref_audio:
             reference_path = Path(settings.omlx_tts_ref_audio).expanduser()
             if not reference_path.is_file():
                 raise FileNotFoundError(f"TTS reference audio not found: {reference_path}")
-            self._tts_ref_audio = base64.b64encode(reference_path.read_bytes()).decode("ascii")
+            self._tts_reference_path = str(reference_path.resolve())
+            if settings.tts_protocol in {"openai", "vllm_omni_higgs"}:
+                self._tts_ref_audio = base64.b64encode(reference_path.read_bytes()).decode("ascii")
         api_key = settings.resolved_omlx_api_key()
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         self._client = httpx.AsyncClient(
             base_url=settings.omlx_base_url.rstrip("/") + "/",
+            headers=headers,
+            timeout=httpx.Timeout(180),
+            transport=transport,
+        )
+        self._asr_client = httpx.AsyncClient(
+            base_url=settings.resolved_asr_base_url.rstrip("/") + "/",
             headers=headers,
             timeout=httpx.Timeout(180),
             transport=transport,
@@ -420,7 +429,7 @@ class OMLXRealtimeSession:
         )
 
     async def _transcribe(self, pcm16: bytes) -> str:
-        response = await self._client.post(
+        response = await self._asr_client.post(
             "audio/transcriptions",
             files={"file": ("input.wav", _pcm16_wav(pcm16, self.sample_rate), "audio/wav")},
             data={
@@ -519,32 +528,69 @@ class OMLXRealtimeSession:
         )
         chunk_bytes = max(2, round(self.sample_rate * 0.04) * 2)
         for spoken_segment in _split_tts_segments(spoken_text):
-            request = {
-                "model": self.settings.omlx_tts_model,
-                "input": spoken_segment,
-                "language": "Chinese",
-                "response_format": "wav",
-                "speed": 1.0,
-                "temperature": self.settings.omlx_tts_temperature,
-                "top_p": self.settings.omlx_tts_top_p,
-                "repetition_penalty": self.settings.omlx_tts_repetition_penalty,
-                "stream": True,
-                "streaming_interval": self.settings.tts_streaming_interval,
-                "max_tokens": _tts_token_budget(spoken_segment),
-            }
-            if self.settings.tts_streaming_mode != "full":
-                request["streaming_mode"] = self.settings.tts_streaming_mode
-            if self.settings.omlx_tts_voice:
-                request["voice"] = self.settings.omlx_tts_voice
-            if self.settings.omlx_tts_instructions:
-                request["instructions"] = self.settings.omlx_tts_instructions
-            if self.settings.tts_seed is not None:
-                request["seed"] = self.settings.tts_seed
-            if self.settings.tts_top_k is not None:
-                request["top_k"] = self.settings.tts_top_k
-            if self._tts_ref_audio is not None:
-                request["ref_audio"] = self._tts_ref_audio
-                request["ref_text"] = self.settings.omlx_tts_ref_text
+            if self.settings.tts_protocol == "sglang_higgs":
+                request = {
+                    "input": spoken_segment,
+                    "temperature": self.settings.omlx_tts_temperature,
+                    "top_p": self.settings.omlx_tts_top_p,
+                    "max_new_tokens": _tts_token_budget(spoken_segment),
+                    # SGLang-Omni returns a single canonical WAV in this mode.
+                    # Its streaming mode uses SSE rather than raw WAV bytes.
+                    "stream": False,
+                }
+                if self.settings.tts_top_k is not None:
+                    request["top_k"] = self.settings.tts_top_k
+                if self._tts_reference_path is not None:
+                    request["references"] = [
+                        {
+                            "audio_path": self._tts_reference_path,
+                            "text": self.settings.omlx_tts_ref_text,
+                        }
+                    ]
+            elif self.settings.tts_protocol == "vllm_omni_higgs":
+                request = {
+                    "model": self.settings.tts_served_model,
+                    "input": spoken_segment,
+                    "response_format": "wav",
+                    "max_new_tokens": _tts_token_budget(spoken_segment),
+                    "temperature": self.settings.omlx_tts_temperature,
+                    "top_p": self.settings.omlx_tts_top_p,
+                    "stream": False,
+                }
+                if self.settings.tts_seed is not None:
+                    request["seed"] = self.settings.tts_seed
+                if self.settings.tts_top_k is not None:
+                    request["top_k"] = self.settings.tts_top_k
+                if self._tts_ref_audio is not None:
+                    request["ref_audio"] = f"data:audio/wav;base64,{self._tts_ref_audio}"
+                    request["ref_text"] = self.settings.omlx_tts_ref_text
+            else:
+                request = {
+                    "model": self.settings.omlx_tts_model,
+                    "input": spoken_segment,
+                    "language": "Chinese",
+                    "response_format": "wav",
+                    "speed": 1.0,
+                    "temperature": self.settings.omlx_tts_temperature,
+                    "top_p": self.settings.omlx_tts_top_p,
+                    "repetition_penalty": self.settings.omlx_tts_repetition_penalty,
+                    "stream": True,
+                    "streaming_interval": self.settings.tts_streaming_interval,
+                    "max_tokens": _tts_token_budget(spoken_segment),
+                }
+                if self.settings.tts_streaming_mode != "full":
+                    request["streaming_mode"] = self.settings.tts_streaming_mode
+                if self.settings.omlx_tts_voice:
+                    request["voice"] = self.settings.omlx_tts_voice
+                if self.settings.omlx_tts_instructions:
+                    request["instructions"] = self.settings.omlx_tts_instructions
+                if self.settings.tts_seed is not None:
+                    request["seed"] = self.settings.tts_seed
+                if self.settings.tts_top_k is not None:
+                    request["top_k"] = self.settings.tts_top_k
+                if self._tts_ref_audio is not None:
+                    request["ref_audio"] = self._tts_ref_audio
+                    request["ref_text"] = self.settings.omlx_tts_ref_text
 
             header_buffer = bytearray()
             pcm_buffer = bytearray()
@@ -735,6 +781,7 @@ class OMLXRealtimeSession:
             await self._memory.close()
         if self._chat_client is not self._client:
             await self._chat_client.aclose()
+        await self._asr_client.aclose()
         await self._client.aclose()
         await self._tts_client.aclose()
         await self._events.put(None)

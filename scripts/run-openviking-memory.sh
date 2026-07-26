@@ -20,6 +20,68 @@ if [ -f "$project_root/.env" ]; then
 fi
 
 write_config() {
+    if [ "${VH_MEMORY_LOCAL_ONLY:-false}" = "true" ]; then
+        embedding_base="${VH_MEMORY_EMBEDDING_BASE_URL:-http://127.0.0.1:8002/v1}"
+        embedding_model="${VH_MEMORY_EMBEDDING_MODEL:-Qwen3-Embedding-0.6B}"
+        embedding_dimension="${VH_MEMORY_EMBEDDING_DIMENSION:-1024}"
+        llm_base="${VH_MEMORY_VLM_BASE_URL:-http://127.0.0.1:8000/v1}"
+        llm_model="${VH_MEMORY_VLM_MODEL:-Qwen3.6-35B-A3B-AWQ}"
+        case "$embedding_base" in
+            http://127.0.0.1/*|http://localhost/*) ;;
+            *)
+                echo "Local-only memory requires a loopback embedding endpoint" >&2
+                exit 1
+                ;;
+        esac
+        case "$llm_base" in
+            http://127.0.0.1/*|http://localhost/*) ;;
+            *)
+                echo "Local-only memory requires a loopback VLM endpoint" >&2
+                exit 1
+                ;;
+        esac
+        jq -n \
+            --arg workspace "$workspace_dir" \
+            --arg embedding_base "$embedding_base" \
+            --arg embedding_model "$embedding_model" \
+            --argjson embedding_dimension "$embedding_dimension" \
+            --arg llm_base "$llm_base" \
+            --arg llm_model "$llm_model" \
+            '{
+                storage: {
+                    workspace: $workspace,
+                    vectordb: {backend: "local"},
+                    agfs: {backend: "local"}
+                },
+                embedding: {
+                    max_concurrent: 4,
+                    max_retries: 1,
+                    dense: {
+                        provider: "openai",
+                        api_base: $embedding_base,
+                        api_key: "local-offline",
+                        model: $embedding_model,
+                        dimension: $embedding_dimension,
+                        input: "text",
+                        encoding_format: "float"
+                    }
+                },
+                vlm: {
+                    provider: "openai",
+                    api_base: $llm_base,
+                    api_key: "local-offline",
+                    model: $llm_model,
+                    thinking: false,
+                    max_concurrent: 2,
+                    max_retries: 1
+                },
+                memory: {version: "v2"},
+                server: {auth_mode: "dev"}
+            }' > "$config_file"
+        chmod 600 "$config_file"
+        return
+    fi
+
     plan_key="${VH_ARK_API_KEY:-}"
     embedding_key="${VH_MEMORY_EMBEDDING_API_KEY:-}"
     if [ -z "$embedding_key" ] && [ -f "/Users/james/.openviking/ov.conf" ]; then
@@ -83,6 +145,8 @@ start_service() {
         exit 0
     fi
     write_config
+    HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-0}" \
+    TRANSFORMERS_OFFLINE="${TRANSFORMERS_OFFLINE:-0}" \
     OPENVIKING_CONFIG_FILE="$config_file" nohup "$openviking_bin" \
         --config "$config_file" \
         --host 127.0.0.1 \
