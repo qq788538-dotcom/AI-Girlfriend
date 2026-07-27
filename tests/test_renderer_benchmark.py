@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import wave
 
 import pytest
@@ -83,3 +84,85 @@ async def test_benchmark_reports_connection_closed_before_ready(tmp_path) -> Non
                 realtime_input=False,
                 timeout_seconds=2,
             )
+
+
+async def test_benchmark_downloads_final_video_ready_output(
+    tmp_path, monkeypatch
+) -> None:
+    reference = tmp_path / "reference.png"
+    reference.write_bytes(b"not-a-real-image")
+    audio = tmp_path / "audio.wav"
+    output = tmp_path / "output.mp4"
+    with wave.open(str(audio), "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(16_000)
+        wav_file.writeframes(b"\x00\x00" * 160)
+
+    async def renderer(connection) -> None:
+        start = json.loads(await connection.recv())
+        await connection.send(
+            json.dumps(
+                {
+                    "type": "avatar.session.ready",
+                    "session_id": start["session_id"],
+                    "backend": "liveact-official",
+                }
+            )
+        )
+        while True:
+            event = json.loads(await connection.recv())
+            if event["type"] == "avatar.response.finish":
+                break
+        await connection.send(
+            json.dumps(
+                {
+                    "type": "avatar.video.ready",
+                    "url": "http://renderer.test/final.mp4",
+                    "backend": "liveact-official",
+                }
+            )
+        )
+        await connection.send(json.dumps({"type": "avatar.render.done"}))
+
+    class FakeResponse:
+        content = b"final-mp4"
+
+        def raise_for_status(self) -> None:
+            return None
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args) -> None:
+            return None
+
+        async def get(self, url: str) -> FakeResponse:
+            assert url == "http://renderer.test/final.mp4"
+            return FakeResponse()
+
+    monkeypatch.setattr(
+        "virtual_human.renderer_benchmark.httpx.AsyncClient",
+        lambda **_kwargs: FakeClient(),
+    )
+    monkeypatch.setattr(
+        "virtual_human.renderer_benchmark.probe_media",
+        lambda path: {"path": path},
+    )
+
+    async with websockets.serve(renderer, "127.0.0.1", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        metrics, probe = await benchmark_renderer(
+            renderer_url=f"ws://127.0.0.1:{port}",
+            reference_path=reference,
+            audio_path=audio,
+            output_path=output,
+            chunk_ms=40,
+            realtime_input=False,
+            timeout_seconds=2,
+        )
+
+    assert output.read_bytes() == b"final-mp4"
+    assert metrics.output_path == str(output)
+    assert probe == {"path": str(output)}

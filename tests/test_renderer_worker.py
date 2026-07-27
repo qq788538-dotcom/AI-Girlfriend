@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import wave
 
@@ -5,6 +6,7 @@ import pytest
 
 from virtual_human.renderer_worker import (
     LiveActOfficialBackend,
+    RendererSession,
     RendererSettings,
     ResponseAudio,
     create_renderer_app,
@@ -173,3 +175,60 @@ async def test_liveact_hls_proxy_keeps_stream_on_renderer_origin(
 
     assert requested_urls[-1] == "http://127.0.0.1:5001/stream/task-1/live0.ts"
     assert segment_response.media_type == "video/mp2t"
+
+
+async def test_liveact_render_lock_serializes_sessions(tmp_path) -> None:
+    active = 0
+    max_active = 0
+    release_first = asyncio.Event()
+    first_started = asyncio.Event()
+
+    class FakeWebSocket:
+        async def send_json(self, _event) -> None:
+            return None
+
+    class FakeBackend:
+        async def render(self, **_kwargs) -> None:
+            nonlocal active, max_active
+            active += 1
+            max_active = max(max_active, active)
+            if not first_started.is_set():
+                first_started.set()
+                await release_first.wait()
+            active -= 1
+
+    settings = RendererSettings(
+        VH_RENDERER_BACKEND="liveact-official",
+        VH_RENDERER_RUNTIME_DIR=tmp_path,
+    )
+    render_lock = asyncio.Lock()
+    sessions = [
+        RendererSession(
+            settings, FakeWebSocket(), "http://renderer", render_lock=render_lock
+        )
+        for _ in range(2)
+    ]
+    for index, session in enumerate(sessions):
+        session.session_id = f"session-{index}"
+        session.session_dir = tmp_path / session.session_id
+        session.session_dir.mkdir()
+        session.reference_path = session.session_dir / "reference.png"
+        session.reference_path.write_bytes(b"image")
+        session.backend = FakeBackend()
+
+    responses = [
+        ResponseAudio(response_id=f"response-{index}", sample_rate=24_000)
+        for index in range(2)
+    ]
+    tasks = [
+        asyncio.create_task(session._render(response))
+        for session, response in zip(sessions, responses, strict=True)
+    ]
+    await first_started.wait()
+    await asyncio.sleep(0)
+    assert max_active == 1
+
+    release_first.set()
+    await asyncio.gather(*tasks)
+
+    assert max_active == 1

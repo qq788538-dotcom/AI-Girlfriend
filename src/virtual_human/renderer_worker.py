@@ -373,7 +373,13 @@ class LiveActOfficialBackend(RendererBackend):
 
 
 class RendererSession:
-    def __init__(self, settings: RendererSettings, websocket: WebSocket, base_url: str) -> None:
+    def __init__(
+        self,
+        settings: RendererSettings,
+        websocket: WebSocket,
+        base_url: str,
+        render_lock: asyncio.Lock | None = None,
+    ) -> None:
         self.settings = settings
         self.websocket = websocket
         self.base_url = base_url.rstrip("/")
@@ -384,6 +390,7 @@ class RendererSession:
         self.responses: dict[str, ResponseAudio] = {}
         self.render_tasks: dict[str, asyncio.Task[None]] = {}
         self._send_lock = asyncio.Lock()
+        self._render_lock = render_lock
         self.backend = self._build_backend()
 
     def _build_backend(self) -> RendererBackend:
@@ -470,14 +477,24 @@ class RendererSession:
         if response_id in self.render_tasks and not self.render_tasks[response_id].done():
             return
         response = self.responses[response_id]
+        queued = self._render_lock is not None and self._render_lock.locked()
         await self.emit(
             {
                 "type": "avatar.render.accepted",
                 "response_id": response_id,
                 "duration_ms": response.duration_ms,
                 "backend": self.settings.backend,
+                "queued": queued,
             }
         )
+        if queued:
+            await self.emit(
+                {
+                    "type": "avatar.render.queued",
+                    "response_id": response_id,
+                    "backend": self.settings.backend,
+                }
+            )
         task = asyncio.create_task(self._render(response))
         self.render_tasks[response_id] = task
 
@@ -486,14 +503,21 @@ class RendererSession:
         assert self.session_dir is not None
         assert self.reference_path is not None
         try:
-            await self.backend.render(
-                session_id=self.session_id,
-                response=response,
-                reference_path=self.reference_path,
-                output_dir=self.session_dir,
-                base_url=self.base_url,
-                emit=self.emit,
-            )
+            async def run_backend() -> None:
+                await self.backend.render(
+                    session_id=self.session_id,
+                    response=response,
+                    reference_path=self.reference_path,
+                    output_dir=self.session_dir,
+                    base_url=self.base_url,
+                    emit=self.emit,
+                )
+
+            if self._render_lock is None:
+                await run_backend()
+            else:
+                async with self._render_lock:
+                    await run_backend()
         except asyncio.CancelledError:
             raise
         except Exception as error:
@@ -530,6 +554,9 @@ def create_renderer_app(settings: RendererSettings | None = None) -> FastAPI:
     renderer_settings = settings or RendererSettings()
     renderer_settings.runtime_dir.mkdir(parents=True, exist_ok=True)
     application = FastAPI(title="Virtual Human GPU Renderer", version="0.1.0")
+    render_lock = (
+        asyncio.Lock() if renderer_settings.backend == "liveact-official" else None
+    )
     application.add_middleware(
         CORSMiddleware,
         allow_origins=[origin.strip() for origin in renderer_settings.cors_origins.split(",") if origin.strip()],
@@ -577,7 +604,9 @@ def create_renderer_app(settings: RendererSettings | None = None) -> FastAPI:
         await websocket.accept()
         scheme = "https" if websocket.url.scheme == "wss" else "http"
         base_url = renderer_settings.public_base_url or f"{scheme}://{websocket.url.netloc}"
-        session = RendererSession(renderer_settings, websocket, base_url)
+        session = RendererSession(
+            renderer_settings, websocket, base_url, render_lock=render_lock
+        )
         try:
             while True:
                 raw = await websocket.receive_text()

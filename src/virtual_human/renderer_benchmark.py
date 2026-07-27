@@ -11,6 +11,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from uuid import uuid4
 
+import httpx
 import websockets
 
 from virtual_human.av_verify import probe_media
@@ -102,6 +103,7 @@ async def benchmark_renderer(
     media_parts: list[bytes] = []
     media_fragments = 0
     fallback_segments = 0
+    final_video_url: str | None = None
     ready_event = asyncio.Event()
     done_event = asyncio.Event()
     error: RuntimeError | None = None
@@ -120,7 +122,7 @@ async def benchmark_renderer(
 
         async def receive_events() -> None:
             nonlocal ready_at, first_output_at, done_at
-            nonlocal backend, media_fragments, fallback_segments, error
+            nonlocal backend, media_fragments, fallback_segments, final_video_url, error
             try:
                 async for raw in websocket:
                     event = json.loads(raw)
@@ -139,6 +141,7 @@ async def benchmark_renderer(
                         fallback_segments += 1
                         first_output_at = first_output_at or time.perf_counter()
                     elif event_type == "avatar.video.ready":
+                        final_video_url = str(event.get("url") or "") or None
                         first_output_at = first_output_at or time.perf_counter()
                     elif event_type == "avatar.error":
                         error = RuntimeError(
@@ -218,6 +221,14 @@ async def benchmark_renderer(
     if media_parts and output_path:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_bytes(b"".join(media_parts))
+        saved_output = str(output_path)
+        probe = probe_media(saved_output)
+    elif final_video_url and output_path:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+            response = await client.get(final_video_url)
+            response.raise_for_status()
+        output_path.write_bytes(response.content)
         saved_output = str(output_path)
         probe = probe_media(saved_output)
 
