@@ -1,30 +1,31 @@
-# AutoDL 4090-48G deployment
+# AutoDL PRO 6000 all-cloud deployment
 
-This directory adapts `codex/xiangongyun-deploy` to AutoDL without changing the
-Xiangongyun runtime. The model stack stays fully local:
+This profile runs the complete browser-to-avatar path on one RTX PRO 6000
+Blackwell 96 GB. The browser only records microphone PCM and plays HLS/MP4:
 
-- Qwen3.6-35B-A3B-AWQ on port 8000
+- Qwen3-4B-AWQ dialogue and private memory extraction on port 8000
 - Qwen3-ASR-0.6B on port 8001
 - Qwen3-Embedding-0.6B on port 8002
 - Higgs Audio v3 on port 8010
-- SoulX-FlashHead Lite on port 8770
+- SoulX-LiveAct on port 5001 with its protocol wrapper on port 8772
 - OpenViking on port 1934
 - Public web and WebSocket gateway on port 6006
 
 AutoDL maps container port 6006 to the instance HTTPS custom-service domain.
-Only 6006 is public; every model service remains bound to loopback.
+Only 6006 is public; every model, memory, and renderer service is loopback-only.
+Silero VAD v6.2 runs locally in the browser so silence is not uploaded.
 
 ## Provision
 
-Use an AutoDL Pro instance with one `4090-48G` (`v-48g`), CUDA driver support
-at least 11.8, and at least 350 GB of expanded system disk.
+Use an AutoDL Pro instance with one RTX PRO 6000 Blackwell 96 GB, CUDA 12.8,
+and at least 50 GB free on the persistent data disk after LiveAct is installed.
 
 ```bash
 git clone --recurse-submodules \
   https://github.com/qq788538-dotcom/AI-Girlfriend.git \
   /root/AI-Girlfriend
 cd /root/AI-Girlfriend
-git switch codex/autodl-deploy
+git switch codex/autodl-cloud-fullstack
 
 mkdir -p runtime/voice-calibration
 # Upload the locked reference file separately:
@@ -38,6 +39,26 @@ deploy/autodl/control.sh status
 The reference audio is intentionally excluded from Git. Bootstrap verifies its
 fixed SHA-256 before installing the stack.
 
+The bootstrap uses ModelScope for Qwen checkpoints and enables AutoDL network
+turbo only around Hugging Face downloads. It deliberately skips the 35B model;
+the compact AWQ model leaves the validated resident LiveAct profile and Higgs
+TTS enough VRAM to run concurrently.
+
+## Migrate OpenViking memory
+
+Stop the local OpenViking writer, copy the workspace without printing its
+contents, and verify file count and byte count before starting cloud services:
+
+```bash
+rsync -a --info=progress2 \
+  runtime/openviking-girlfriend/workspace/ \
+  root@INSTANCE:/root/AI-Girlfriend/runtime/openviking-girlfriend/workspace/
+```
+
+The deployment process makes a timestamped cloud-side backup before replacing
+an existing workspace. OpenViking uses the loopback CPU embedding service and
+the loopback 4B LLM; private memory extraction is not sent to an external API.
+
 ## Power-on command
 
 Set the AutoDL Pro API `start_command` to:
@@ -49,10 +70,9 @@ bash /root/AI-Girlfriend/deploy/autodl/autostart.sh
 The script is idempotent, waits for the GPU, writes
 `runtime/autodl/autostart.log`, and does not start duplicate processes.
 
-## SoulX-LiveAct test mode
+## SoulX-LiveAct runtime
 
-For a single RTX 4090/5090, the optional LiveAct path follows the official
-memory-saving flags (`--fp8_kv_cache --block_offload --t5_cpu`). The official
+The official
 Flask demo is launched through `liveact_demo_launcher.py`, which forces its
 listener to `127.0.0.1:5001`. On one GPU it runs directly without a distributed
 rendezvous port. The protocol wrapper also remains loopback-only on
@@ -66,10 +86,10 @@ An installed SageAttention candidate is only enabled explicitly with
 `VH_LIVEACT_FORCE_SDPA=0`; setting it back to `1` masks both FlashAttention
 and SageAttention and provides a complete rollback path.
 
-`VH_LIVEACT_BLOCK_OFFLOAD=1` remains the safe default for 32 GB cards. On
-larger GPUs, set it to `0` to keep the 18B denoiser resident in VRAM and avoid
-per-layer CPU/GPU transfers. Treat this as a hardware-specific A/B: validate
-peak VRAM and the same media-quality gates before making it persistent.
+The PRO 6000 profile uses `VH_LIVEACT_BLOCK_OFFLOAD=0` and SageAttention because
+the measured resident path is faster and fits alongside the compact cloud
+speech stack. The rollback values are `VH_LIVEACT_BLOCK_OFFLOAD=1` and
+`VH_LIVEACT_FORCE_SDPA=1`.
 
 ```bash
 deploy/autodl/liveact-control.sh start

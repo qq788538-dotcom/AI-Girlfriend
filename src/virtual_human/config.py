@@ -189,6 +189,7 @@ class Settings(BaseSettings):
 
     output_sample_rate: int = Field(24000, alias="VH_OUTPUT_SAMPLE_RATE")
     avatar_renderer_ws: str = Field("", alias="VH_AVATAR_RENDERER_WS")
+    avatar_media_base_url: str = Field("", alias="VH_AVATAR_MEDIA_BASE_URL")
     avatar_renderer_token_file: str = Field(
         "",
         alias="VH_AVATAR_RENDERER_TOKEN_FILE",
@@ -260,6 +261,8 @@ class Settings(BaseSettings):
                 local_endpoints["VH_MEMORY_BASE_URL"] = self.memory_base_url
             if self.avatar_renderer_ws:
                 local_endpoints["VH_AVATAR_RENDERER_WS"] = self.avatar_renderer_ws
+            if self.avatar_media_base_url:
+                local_endpoints["VH_AVATAR_MEDIA_BASE_URL"] = self.avatar_media_base_url
             for name, endpoint in local_endpoints.items():
                 if urlsplit(endpoint).hostname not in {"127.0.0.1", "localhost", "::1"}:
                     raise ValueError(f"Offline runtime requires a loopback-only {name}")

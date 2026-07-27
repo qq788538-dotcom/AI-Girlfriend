@@ -81,6 +81,17 @@ def test_openviking_memory_defaults_to_isolated_virtual_girlfriend_port() -> Non
     assert settings.memory_commit_every_turns == 1
 
 
+def test_offline_avatar_media_proxy_must_target_loopback() -> None:
+    with pytest.raises(ValidationError, match="VH_AVATAR_MEDIA_BASE_URL"):
+        Settings(
+            _env_file=None,
+            VH_OFFLINE_RUNTIME=True,
+            VH_UPSTREAM_MODE="omlx",
+            VH_CHAT_BACKEND="omlx",
+            VH_AVATAR_MEDIA_BASE_URL="https://renderer.example",
+        )
+
+
 def test_avatar_renderer_token_is_read_from_a_separate_file(tmp_path) -> None:
     token_file = tmp_path / "renderer.token"
     token_file.write_text("private-renderer-token\n")

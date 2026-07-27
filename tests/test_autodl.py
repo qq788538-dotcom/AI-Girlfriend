@@ -9,18 +9,37 @@ def test_autodl_uses_public_port_6006_and_keeps_models_loopback_only() -> None:
 
     assert "VH_HOST=0.0.0.0" in env
     assert "VH_PORT=6006" in env
-    for port in (8000, 8001, 8010, 1934, 8770, 8002):
+    for port in (8000, 8001, 8010, 1934, 8772, 8002):
         assert f"127.0.0.1:{port}" in env
 
 
-def test_autodl_control_reuses_the_locked_xiangongyun_runtime() -> None:
+def test_autodl_control_runs_the_pro6000_cloud_stack() -> None:
     bootstrap = (AUTODL / "bootstrap.sh").read_text(encoding="utf-8")
     control = (AUTODL / "control.sh").read_text(encoding="utf-8")
     autostart = (AUTODL / "autostart.sh").read_text(encoding="utf-8")
+    env = (AUTODL / "env.example").read_text(encoding="utf-8")
 
-    assert "deploy/xiangongyun/control.sh" in control
-    assert "VH_XGC_RUNTIME_ENV" in control
-    assert "VH_XGC_SECRETS_ENV" in control
+    assert "deploy/xiangongyun/control.sh" not in control
+    assert 'VH_CHAT_BACKEND:-}" != "omlx"' in control
+    assert "VH_MEMORY_LOCAL_ONLY" in control
+    assert "liveact-control.sh" in control
+    assert "Qwen3-4B-AWQ" in control
+    assert "run-xgc-asr.sh" in control
+    assert "run-xgc-tts.sh" in control
+    assert "run-openviking-memory.sh" in control
+    assert "VH_BOOTSTRAP_LLM=false" in bootstrap
+    assert "VH_BOOTSTRAP_MEMORY_LLM=true" in bootstrap
+    assert "VH_OMLX_CHAT_MODEL=Qwen3-4B-AWQ" in env
+    assert "VH_AVATAR_BACKEND=liveact-official" in env
+    assert "VH_AVATAR_MEDIA_BASE_URL=http://127.0.0.1:8772" in env
+    assert "VH_LIVEACT_BLOCK_OFFLOAD=0" in env
+    assert "VH_TTS_STAGE_OVERRIDES=" in env
+    assert "VH_RENDERER_PUBLIC_BASE_URL=/avatar-media" in (
+        AUTODL / "liveact-control.sh"
+    ).read_text(encoding="utf-8")
+    assert '@app.get("/avatar-media/{media_path:path}")' in (
+        ROOT / "src" / "virtual_human" / "app.py"
+    ).read_text(encoding="utf-8")
     assert "flock -n 9" in autostart
     assert "deploy/autodl/control.sh status" in autostart
     assert "deploy/autodl/control.sh start" in autostart

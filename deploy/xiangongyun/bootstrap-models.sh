@@ -14,6 +14,8 @@ vllm_version="${VH_VLLM_VERSION:-0.19.1}"
 vllm_omni_version="${VH_VLLM_OMNI_VERSION:-0.24.0}"
 openviking_version="${OPENVIKING_VERSION:-0.4.11}"
 model_download_attempts="${VH_MODEL_DOWNLOAD_ATTEMPTS:-20}"
+llm_enabled="${VH_BOOTSTRAP_LLM:-true}"
+memory_llm_enabled="${VH_BOOTSTRAP_MEMORY_LLM:-false}"
 
 if [ "$(uname -s)" != "Linux" ] || ! command -v nvidia-smi >/dev/null 2>&1; then
     echo "Local model bootstrap requires a Linux CUDA instance." >&2
@@ -31,10 +33,11 @@ if [ ! -x "$bootstrap_venv/bin/uv" ]; then
     "$bootstrap_venv/bin/pip" install --upgrade pip uv
 fi
 uv="$bootstrap_venv/bin/uv"
-if [ ! -x "$bootstrap_venv/bin/modelscope" ]; then
+if [ ! -x "$bootstrap_venv/bin/modelscope" ] || [ ! -x "$bootstrap_venv/bin/hf" ]; then
     "$uv" pip install \
         --python "$bootstrap_venv/bin/python" \
-        modelscope
+        modelscope \
+        "huggingface_hub[cli]"
 fi
 modelscope="$bootstrap_venv/bin/modelscope"
 "$uv" python install 3.12
@@ -113,17 +116,18 @@ ensure_venv() {
     fi
 }
 
-ensure_venv "$vllm_venv"
-if [ ! -x "$vllm_venv/bin/vllm" ]; then
-    "$uv" pip install \
-        --python "$vllm_venv/bin/python" \
-        "vllm[audio]==$vllm_version" \
-        "huggingface_hub[cli]"
-fi
-if [ ! -x "$vllm_venv/bin/ninja" ]; then
-    "$uv" pip install \
-        --python "$vllm_venv/bin/python" \
-        ninja
+if [ "$llm_enabled" = true ]; then
+    ensure_venv "$vllm_venv"
+    if [ ! -x "$vllm_venv/bin/vllm" ]; then
+        "$uv" pip install \
+            --python "$vllm_venv/bin/python" \
+            "vllm[audio]==$vllm_version"
+    fi
+    if [ ! -x "$vllm_venv/bin/ninja" ]; then
+        "$uv" pip install \
+            --python "$vllm_venv/bin/python" \
+            ninja
+    fi
 fi
 
 ensure_venv "$asr_venv"
@@ -169,7 +173,20 @@ if [ ! -x "$memory_venv/bin/openviking-server" ]; then
 fi
 
 mkdir -p "$models_dir"
-hf="$vllm_venv/bin/hf"
+hf="$bootstrap_venv/bin/hf"
+run_hf() {
+    if [ "${VH_AUTODL_NETWORK_TURBO:-0}" = 1 ] && [ -f /etc/network_turbo ]; then
+        (
+            # AutoDL's proxy is useful for Hugging Face but intentionally not
+            # exported to the rest of bootstrap, where it slows PyPI down.
+            # shellcheck disable=SC1091
+            . /etc/network_turbo >/dev/null
+            exec "$hf" "$@"
+        )
+    else
+        "$hf" "$@"
+    fi
+}
 download_model() {
     repo="$1"
     target="$2"
@@ -177,7 +194,7 @@ download_model() {
     attempt=1
     while ! snapshot_complete "$target" "$marker"; do
         echo "Downloading $repo (attempt $attempt/$model_download_attempts)"
-        if "$hf" download "$repo" --local-dir "$target" &&
+        if run_hf download "$repo" --local-dir "$target" &&
             snapshot_complete "$target" "$marker"; then
             break
         fi
@@ -198,7 +215,7 @@ download_model_subset() {
     attempt=1
     while ! snapshot_complete "$target" "$marker"; do
         echo "Downloading $include_pattern from $repo (attempt $attempt/$model_download_attempts)"
-        if "$hf" download "$repo" \
+        if run_hf download "$repo" \
             --include "$include_pattern" \
             --local-dir "$target" &&
             snapshot_complete "$target" "$marker"; then
@@ -237,11 +254,19 @@ download_modelscope_model() {
     done
 }
 
-download_modelscope_model \
-    tclf90/Qwen3.6-35B-A3B-AWQ \
-    "$models_dir/Qwen3.6-35B-A3B-AWQ-QuantTrio" \
-    model.safetensors.index.json \
-    qwen36_awq
+if [ "$llm_enabled" = true ]; then
+    download_modelscope_model \
+        tclf90/Qwen3.6-35B-A3B-AWQ \
+        "$models_dir/Qwen3.6-35B-A3B-AWQ-QuantTrio" \
+        model.safetensors.index.json \
+        qwen36_awq
+fi
+if [ "$memory_llm_enabled" = true ]; then
+    download_modelscope_model \
+        Qwen/Qwen3-4B-AWQ \
+        "$models_dir/Qwen3-4B-AWQ" \
+        model.safetensors.index.json
+fi
 download_modelscope_model \
     Qwen/Qwen3-ASR-0.6B \
     "$models_dir/Qwen3-ASR-0.6B" \

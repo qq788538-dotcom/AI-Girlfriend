@@ -3,9 +3,10 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+import httpx
 import uvicorn
-from fastapi import FastAPI, WebSocket
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import FastAPI, HTTPException, Request, WebSocket
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from virtual_human.avatar import build_avatar_sink
@@ -122,6 +123,35 @@ async def realtime(websocket: WebSocket) -> None:
             await websocket.close()
         except Exception:
             pass
+
+
+@app.get("/avatar-media/{media_path:path}")
+async def avatar_media(media_path: str, request: Request) -> Response:
+    """Same-origin proxy for loopback-only LiveAct HLS and final MP4 files."""
+    if not settings.avatar_media_base_url:
+        raise HTTPException(status_code=404)
+    if not media_path or ".." in Path(media_path).parts:
+        raise HTTPException(status_code=400, detail="Invalid avatar media path")
+
+    headers: dict[str, str] = {}
+    if byte_range := request.headers.get("range"):
+        headers["Range"] = byte_range
+    async with httpx.AsyncClient(timeout=60, follow_redirects=False) as client:
+        upstream = await client.get(
+            f"{settings.avatar_media_base_url.rstrip('/')}/{media_path}",
+            headers=headers,
+        )
+    response_headers = {
+        name: value
+        for name, value in upstream.headers.items()
+        if name.lower() in {"accept-ranges", "cache-control", "content-length", "content-range"}
+    }
+    return Response(
+        content=upstream.content,
+        status_code=upstream.status_code,
+        media_type=upstream.headers.get("content-type"),
+        headers=response_headers,
+    )
 
 
 public_dir = Path(settings.public_dir).resolve()

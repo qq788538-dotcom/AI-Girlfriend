@@ -64,6 +64,7 @@ start_wrapper() {
         VH_RENDERER_PORT=8772 \
         VH_RENDERER_BACKEND=liveact-official \
         VH_RENDERER_RUNTIME_DIR="$DATA_ROOT/liveact-renderer" \
+        VH_RENDERER_PUBLIC_BASE_URL=/avatar-media \
         VH_LIVEACT_DEMO_URL=http://127.0.0.1:5001 \
         VH_LIVEACT_PROMPT="$LIVEACT_PROMPT" \
         VH_RENDERER_FPS=20 \
