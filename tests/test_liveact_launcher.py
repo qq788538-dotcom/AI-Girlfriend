@@ -145,3 +145,40 @@ def test_tail_frame_fix_builds_same_directory_runtime_copy(
     assert "generated_frames += num_frames_this_chunk" in patched
     assert '"VH_LIVEACT_WARMUP_PROMPT"' in patched
     assert demo_path.read_text(encoding="utf-8").startswith("import argparse\n")
+
+
+def test_reference_cache_patch_uses_content_key_and_production_warmup(
+    monkeypatch,
+) -> None:
+    launcher = _load_launcher(monkeypatch)
+    source = (
+        "import argparse\n"
+        "class Engine:\n"
+        "    def warmup(self):\n"
+        "                # 1. 准备假图像\n"
+        "                old_warmup_image_code\n"
+        "                # 2. CLIP\n"
+        "                old_clip_code\n"
+        "                y = torch.concat([msk, y], dim=1)\n"
+        "\n"
+        "                # 5. prompt\n"
+        "                old_prompt_code\n"
+        "    def generate(self):\n"
+        "            # 3. 图像 / 条件\n"
+        "            old_reference_code\n"
+        "            if self.rank == 0:\n"
+        "                start_time = time.perf_counter()\n"
+        "\n"
+        "            edit_prompts = {}\n"
+    )
+
+    patched = launcher._patch_reference_cache(source)
+
+    assert "hashlib.sha256()" in patched
+    assert '"VH_LIVEACT_WARMUP_REFERENCE"' in patched
+    assert '"VH_LIVEACT_CACHE_REFERENCE"' in patched
+    assert "self._vh_reference_cache" in patched
+    assert "[ReferenceCache] production reference prewarmed" in patched
+    assert "frame_num_init = (sum(self.blksz_lst) - 1) * 4 + 1" in patched
+    assert "torch.manual_seed(self.args.seed)" in patched
+    compile(patched, "<patched-liveact-demo>", "exec")
