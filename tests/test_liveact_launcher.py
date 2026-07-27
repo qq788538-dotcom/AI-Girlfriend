@@ -114,3 +114,32 @@ def test_vae_compile_policy_can_disable_only_wanvae_decode(monkeypatch) -> None:
     launcher._install_vae_compile_policy()
 
     assert FakeTorch.compile(decode) is decode
+
+
+def test_tail_frame_fix_builds_same_directory_runtime_copy(
+    tmp_path, monkeypatch
+) -> None:
+    launcher = _load_launcher(monkeypatch)
+    demo_path = tmp_path / "demo.py"
+    demo_path.write_text(
+        "import argparse\n"
+        "def generate(self, audio_len_sec, fps):\n"
+        "            iter_total_num = int(audio_len_sec / "
+        "(self.vae_stride[0] * self.blksz_lst[-1] / fps)) + 1\n"
+        "            pre_latent = None\n"
+        "            if self.rank == 0:\n"
+        "                    chunk_bytes, num_frames_this_chunk = "
+        "tensor_chunk_to_rgb_bytes(_videos)\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("VH_LIVEACT_FIX_TAIL_FRAMES", "1")
+
+    patched_path = launcher._prepare_demo_path(demo_path)
+    patched = patched_path.read_text(encoding="utf-8")
+
+    assert patched_path.parent == demo_path.parent
+    assert patched_path.name == ".autodl-demo-tailfix.py"
+    assert "target_total_frames = math.ceil(audio_len_sec * fps)" in patched
+    assert "_videos = _videos[:, :, :frames_remaining]" in patched
+    assert "generated_frames += num_frames_this_chunk" in patched
+    assert demo_path.read_text(encoding="utf-8").startswith("import argparse\n")

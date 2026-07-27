@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import wave
 
@@ -117,6 +118,16 @@ async def test_benchmark_downloads_final_video_ready_output(
         await connection.send(
             json.dumps(
                 {
+                    "type": "avatar.stream.ready",
+                    "url": "http://renderer.test/live.m3u8",
+                    "backend": "liveact-official",
+                }
+            )
+        )
+        await asyncio.sleep(0.02)
+        await connection.send(
+            json.dumps(
+                {
                     "type": "avatar.video.ready",
                     "url": "http://renderer.test/final.mp4",
                     "backend": "liveact-official",
@@ -165,4 +176,5 @@ async def test_benchmark_downloads_final_video_ready_output(
 
     assert output.read_bytes() == b"final-mp4"
     assert metrics.output_path == str(output)
+    assert metrics.first_output_ms < metrics.render_done_ms - 10
     assert probe == {"path": str(output)}

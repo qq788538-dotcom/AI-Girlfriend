@@ -175,6 +175,68 @@ def _install_vae_compile_policy() -> None:
     torch.compile = compile_with_vae_policy
 
 
+def _prepare_demo_path(demo_path: Path) -> Path:
+    """Build a same-directory runtime copy that preserves the final audio frames."""
+    if os.environ.get("VH_LIVEACT_FIX_TAIL_FRAMES", "0") != "1":
+        return demo_path
+
+    source = demo_path.read_text(encoding="utf-8")
+    import_anchor = "import argparse\n"
+    count_anchor = (
+        "            iter_total_num = int(audio_len_sec / "
+        "(self.vae_stride[0] * self.blksz_lst[-1] / fps)) + 1\n"
+        "            pre_latent = None\n"
+    )
+    write_anchor = (
+        "                    chunk_bytes, num_frames_this_chunk = "
+        "tensor_chunk_to_rgb_bytes(_videos)\n"
+    )
+    if source.count(import_anchor) != 1:
+        raise SystemExit("LiveAct tail fix could not find the import anchor")
+    if source.count(count_anchor) != 1:
+        raise SystemExit("LiveAct tail fix could not find the chunk-count anchor")
+    if source.count(write_anchor) != 1:
+        raise SystemExit("LiveAct tail fix could not find the chunk-write anchor")
+
+    source = source.replace(import_anchor, import_anchor + "import math\n", 1)
+    source = source.replace(
+        count_anchor,
+        (
+            "            first_chunk_frames = "
+            "(self.blksz_lst[0] - 1) * self.vae_stride[0] + 1\n"
+            "            steady_chunk_frames = "
+            "self.blksz_lst[-1] * self.vae_stride[0]\n"
+            "            target_total_frames = math.ceil(audio_len_sec * fps)\n"
+            "            remaining_frames = max(0, target_total_frames - "
+            "first_chunk_frames)\n"
+            "            iter_total_num = 1 + math.ceil("
+            "remaining_frames / steady_chunk_frames)\n"
+            "            generated_frames = 0\n"
+            "            pre_latent = None\n"
+        ),
+        1,
+    )
+    source = source.replace(
+        write_anchor,
+        (
+            "                    frames_remaining = "
+            "target_total_frames - generated_frames\n"
+            "                    _videos = _videos[:, :, :frames_remaining]\n"
+            + write_anchor
+            + "                    generated_frames += num_frames_this_chunk\n"
+        ),
+        1,
+    )
+    patched_path = demo_path.with_name(".autodl-demo-tailfix.py")
+    if not patched_path.is_file() or patched_path.read_text(encoding="utf-8") != source:
+        patched_path.write_text(source, encoding="utf-8")
+    warnings.warn(
+        "SoulX-LiveAct final chunk count and frame trimming fix enabled.",
+        stacklevel=2,
+    )
+    return patched_path
+
+
 def main() -> None:
     project_dir = Path(
         os.environ.get("VH_AUTODL_PROJECT_DIR", "/root/AI-Girlfriend")
@@ -183,6 +245,7 @@ def main() -> None:
     demo_path = liveact_dir / "demo.py"
     if not demo_path.is_file():
         raise SystemExit(f"LiveAct demo is missing: {demo_path}")
+    demo_path = _prepare_demo_path(demo_path)
 
     original_run = Flask.run
 

@@ -140,6 +140,8 @@ async def benchmark_renderer(
                     elif event_type == "avatar.video.segment":
                         fallback_segments += 1
                         first_output_at = first_output_at or time.perf_counter()
+                    elif event_type == "avatar.stream.ready":
+                        first_output_at = first_output_at or time.perf_counter()
                     elif event_type == "avatar.video.ready":
                         final_video_url = str(event.get("url") or "") or None
                         first_output_at = first_output_at or time.perf_counter()

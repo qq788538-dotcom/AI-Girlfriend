@@ -83,9 +83,9 @@ PSNR、SSIM、VMAF/LPIPS 仅作为相对诊断：量化注意力可能产生不�
 | ID | 变量 | 预期收益 | 风险 | 状态 |
 | --- | --- | --- | --- | --- |
 | E01 | SDPA → SageAttention 2.2.0 | 补齐单 5090 稳态吞吐差距 | 量化误差、SM120 构建 | 进行中 |
-| E02 | 缓存固定 T5 embedding | 首画面减少约 13.5 秒 | prompt key 失配 | 待测 |
+| E02 | 缓存固定 T5 embedding | 首画面减少约 13.5 秒 | prompt key 失配 | 热态通过 |
 | E03 | 缓存 reference CLIP/VAE latent | 首画面减少约 0.7–1 秒 | 跨人物污染 | 待测 |
-| E04 | renderer 单任务队列/最新任务策略 | 消除 429 和无响应 | 排队延迟 | 待测 |
+| E04 | renderer 全局单任务队列 | 消除 429 和无响应 | 排队延迟 | 单元测试通过，待并发 E2E |
 | E05 | 持续会话与增量音频 | TTS 与动画重叠 | 上游 demo API 改造 | 待测 |
 | E06 | 轻微降分辨率/帧率/量化 | 像素吞吐提升 | 清晰度、口型质量 | 待测 |
 | E07 | 固定/填充尾块形状，复用 compile graph | 消除偶发数分钟无响应 | 多余尾帧需裁剪 | 已定位，待实现 |
@@ -104,6 +104,48 @@ PSNR、SSIM、VMAF/LPIPS 仅作为相对诊断：量化注意力可能产生不�
   shape 在 192/384 间变化；
 - 结论：这轮不进入 A/B 汇总。需要让 compile cache 落盘，随后相同输入热态重跑；
   E07 提升为高优先级，并分别记录冷编译时间与热态生成时间。
+
+### E02-A1/A2：T5 LRU 缓存与 VAE compile-off
+
+固定输入为同一人物、同一段 macOS 系统合成中文（7.995 秒），不含用户语音。
+服务配置为 T5 cache on、LightVAE decode compile off；SageAttention 尚未安装。
+
+| 指标 | A1 缓存冷态 | A2 缓存热态 |
+| --- | ---: | ---: |
+| 生产协议完成 | 67.183 s | 33.946 s |
+| T5 prompt | 19.609 s | 0.110 s |
+| reference VAE `init_y` | 10.419 s | 0.605 s |
+| 第一块 | 21 帧 / 7.682 s | 21 帧 / 4.455 s |
+| 稳态吞吐 | 4.481 FPS | 4.552 FPS |
+| 输出 | 416×720 / 20 FPS / H.264 + AAC | 同左 |
+
+结论：
+
+- T5 key/device LRU 命中将固定 prompt 从 19.609 秒降到 0.110 秒，降幅 99.4%；
+- A1 还包含模型首请求的 VAE/CUDA 热身，不可把 33.2 秒全部归因于 T5；
+- A2 热态的 `prompt + init_y + first chunk` 仅 5.17 秒；基准工具此前没有把
+  `avatar.stream.ready` 计作首输出，已修正。A3 相同输入复测的 HLS 首输出为
+  5.937 秒、最终完成 33.729 秒；
+- A2/A3 两次热态合计：T5 0.110 秒、第一块 4.67 FPS、稳态 4.579 FPS，
+  重复性良好；
+- VAE compile-off 消除了十分钟 `ptxas` 挂起，但当前稳态约 4.55 FPS，需与
+  static/dynamic 热态继续 A/B，判断约 3–4% 的可能吞吐损失；
+- 当前上游块数公式使 7.995 秒音频只输出 7.467 秒，尾部缺 529 ms，未通过
+  80 ms A/V 门槛。修复必须生成并裁剪最后一个块，不能用缩短音频掩盖。
+- A3 连续性检查：149 帧可完整解码，20 FPS，最大时间戳间隔 50 ms，
+  A/V 内部漂移 16.7 ms，无黑屏、冻结、长静音或熵坍塌；仅因总时长截断而失败。
+  七帧 contact sheet 未见身份漂移或嘴部破坏。
+
+### 环境约束：内存高水位
+
+- AutoDL cgroup：`memory.high=86 GiB`、`memory.max=90 GiB`，不是宿主机
+  `free` 显示的 754 GiB；
+- 8 路 CUDA 源码构建与 LiveAct 同时运行时，`memory.current` 达 88.2 GiB，
+  `memory.events.high` 超过 330 万次，18B 模型加载被拖慢到 8 分钟仍未完成；
+- 终止构建树并保留源码/对象后，LiveAct 约 3 分 43 秒进入预热，预热
+  96.39 秒，总冷启动约 5 分 17 秒；
+- 结论：SageAttention 必须在 LiveAct 停机窗口以 1–2 路低并发构建，不能和
+  block-offload 在线服务并行编译。
 
 ## 可重复命令
 
