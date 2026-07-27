@@ -58,12 +58,13 @@ listener to `127.0.0.1:5001`. On one GPU it runs directly without a distributed
 rendezvous port. The protocol wrapper also remains loopback-only on
 `127.0.0.1:8772`.
 
-The launcher defaults to native FlashAttention
-(`VH_LIVEACT_FORCE_SDPA=0`), the official 416x720 canvas
-(`VH_LIVEACT_SIZE`), and PyTorch expandable CUDA allocator segments. The
-PyTorch SDPA compatibility path remains available by setting the backend
-variable to `1`, for example when the target image lacks a validated native
-FlashAttention wheel.
+The control script defaults to the validated safe profile: PyTorch SDPA,
+T5/reference conditioning caches, exact tail-frame generation, LightVAE
+decode compilation disabled, the official 416x720 canvas
+(`VH_LIVEACT_SIZE`), and PyTorch expandable CUDA allocator segments.
+An installed SageAttention candidate is only enabled explicitly with
+`VH_LIVEACT_FORCE_SDPA=0`; setting it back to `1` masks both FlashAttention
+and SageAttention and provides a complete rollback path.
 
 ```bash
 deploy/autodl/liveact-control.sh start

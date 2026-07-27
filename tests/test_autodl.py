@@ -32,12 +32,12 @@ def test_liveact_defaults_to_native_flash_attention_with_sdpa_fallback() -> None
     control = (AUTODL / "liveact-control.sh").read_text(encoding="utf-8")
     launcher = (AUTODL / "liveact_demo_launcher.py").read_text(encoding="utf-8")
 
-    assert 'VH_LIVEACT_FORCE_SDPA="${VH_LIVEACT_FORCE_SDPA:-0}"' in control
-    assert 'VH_LIVEACT_CACHE_T5="${VH_LIVEACT_CACHE_T5:-0}"' in control
-    assert 'VH_LIVEACT_CACHE_REFERENCE="${VH_LIVEACT_CACHE_REFERENCE:-0}"' in control
+    assert 'VH_LIVEACT_FORCE_SDPA="${VH_LIVEACT_FORCE_SDPA:-1}"' in control
+    assert 'VH_LIVEACT_CACHE_T5="${VH_LIVEACT_CACHE_T5:-1}"' in control
+    assert 'VH_LIVEACT_CACHE_REFERENCE="${VH_LIVEACT_CACHE_REFERENCE:-1}"' in control
     assert "VH_LIVEACT_WARMUP_REFERENCE=" in control
-    assert 'VH_LIVEACT_VAE_COMPILE_MODE="${VH_LIVEACT_VAE_COMPILE_MODE:-static}"' in control
-    assert 'VH_LIVEACT_FIX_TAIL_FRAMES="${VH_LIVEACT_FIX_TAIL_FRAMES:-0}"' in control
+    assert 'VH_LIVEACT_VAE_COMPILE_MODE="${VH_LIVEACT_VAE_COMPILE_MODE:-off}"' in control
+    assert 'VH_LIVEACT_FIX_TAIL_FRAMES="${VH_LIVEACT_FIX_TAIL_FRAMES:-1}"' in control
     assert 'VH_LIVEACT_WARMUP_PROMPT="$LIVEACT_PROMPT"' in control
     assert 'VH_LIVEACT_PROMPT="$LIVEACT_PROMPT"' in control
     assert "_install_t5_cache()" in launcher
