@@ -95,7 +95,7 @@ def test_right_cloud_avatar_button_persists_and_reconnects_mode() -> None:
     assert 'id="cloudButtonStatus"' in html
     assert 'src="/app.js?v=20"' in html
     assert 'src="/hls.min.js?v=1.6.16"' in html
-    assert 'href="/styles.css?v=10"' in html
+    assert 'href="/styles.css?v=11"' in html
     assert 'localStorage.getItem("cloudAvatarEnabled")' in javascript
     assert 'localStorage.setItem("cloudAvatarEnabled"' in javascript
     assert 'elements.cloudAvatarButton.addEventListener("click", toggleCloudAvatar)' in javascript
@@ -117,6 +117,9 @@ def test_avatar_stream_keeps_static_portrait_until_first_video_frame() -> None:
     assert "prepareAvatarVideo" in javascript
     assert 'elements.avatarImage.hidden = true' not in javascript
     assert ".avatar-video.is-visible" in css
+    assert "object-fit: contain;" in css
+    assert ".avatar-frame .avatar-video {" in css
+    assert "object-position: center;" in css
     assert ".avatar-frame.video-ready #avatarImage" in css
     assert ".avatar-frame.video-ready #avatarImage" in css
     assert "opacity 180ms ease" in css
