@@ -24,6 +24,10 @@ def _install_sdpa_fallback() -> None:
     # stale/incompatible wheel cannot prevent the supported SDPA fallback.
     sys.modules["flash_attn"] = None
     sys.modules["flash_attn_interface"] = None
+    # The official model imports SageAttention independently from Wan's
+    # attention wrapper. Mask it too so this flag remains a complete rollback
+    # path after a SageAttention wheel is installed.
+    sys.modules["sageattention"] = None
 
     import torch
     import torch.nn.functional as functional

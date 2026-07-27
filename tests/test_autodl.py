@@ -47,6 +47,7 @@ def test_liveact_defaults_to_native_flash_attention_with_sdpa_fallback() -> None
     assert 'PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"' in control
     assert '--size "${VH_LIVEACT_SIZE:-416*720}"' in control
     assert 'sys.modules["flash_attn"] = None' in launcher
+    assert 'sys.modules["sageattention"] = None' in launcher
     assert "scaled_dot_product_attention" in launcher
     assert "attention_module.flash_attention = sdpa_attention" in launcher
     assert '"wan.modules.clip", "wan.modules.model"' in launcher
