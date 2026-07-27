@@ -29,6 +29,9 @@ def test_autodl_control_runs_the_pro6000_cloud_stack() -> None:
     assert "run-openviking-memory.sh" in control
     assert "VH_BOOTSTRAP_LLM=false" in bootstrap
     assert "VH_BOOTSTRAP_MEMORY_LLM=true" in bootstrap
+    llm_runner = (ROOT / "scripts" / "run-xgc-llm.sh").read_text(encoding="utf-8")
+    assert 'single = root / "model.safetensors"' in llm_runner
+    assert 'index = root / "model.safetensors.index.json"' in llm_runner
     assert "VH_OMLX_CHAT_MODEL=Qwen3-4B-AWQ" in env
     assert "VH_AVATAR_BACKEND=liveact-official" in env
     assert "VH_AVATAR_MEDIA_BASE_URL=http://127.0.0.1:8772" in env

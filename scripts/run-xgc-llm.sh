@@ -22,12 +22,20 @@ import json
 import pathlib
 import sys
 
-index = pathlib.Path(sys.argv[1])
-payload = json.loads(index.read_text())
-files = set(payload.get("weight_map", {}).values())
-if not files or any(not (index.parent / name).is_file() or (index.parent / name).stat().st_size == 0 for name in files):
+root = pathlib.Path(sys.argv[1])
+index = root / "model.safetensors.index.json"
+single = root / "model.safetensors"
+if index.is_file():
+    payload = json.loads(index.read_text())
+    files = set(payload.get("weight_map", {}).values())
+    if not files or any(
+        not (root / name).is_file() or (root / name).stat().st_size == 0
+        for name in files
+    ):
+        raise SystemExit("LLM snapshot is incomplete")
+elif not single.is_file() or single.stat().st_size == 0:
     raise SystemExit("LLM snapshot is incomplete")
-' "$model_path/model.safetensors.index.json"
+' "$model_path"
 
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
