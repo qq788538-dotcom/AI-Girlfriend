@@ -66,6 +66,11 @@ An installed SageAttention candidate is only enabled explicitly with
 `VH_LIVEACT_FORCE_SDPA=0`; setting it back to `1` masks both FlashAttention
 and SageAttention and provides a complete rollback path.
 
+`VH_LIVEACT_BLOCK_OFFLOAD=1` remains the safe default for 32 GB cards. On
+larger GPUs, set it to `0` to keep the 18B denoiser resident in VRAM and avoid
+per-layer CPU/GPU transfers. Treat this as a hardware-specific A/B: validate
+peak VRAM and the same media-quality gates before making it persistent.
+
 ```bash
 deploy/autodl/liveact-control.sh start
 deploy/autodl/liveact-control.sh status

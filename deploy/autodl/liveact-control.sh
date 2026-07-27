@@ -87,6 +87,15 @@ wait_and_start_wrapper() {
 start_services() {
     require_installation
     if ! pid_is_alive "$DEMO_PID_FILE"; then
+        local -a liveact_memory_args=(--fp8_kv_cache --t5_cpu)
+        case "${VH_LIVEACT_BLOCK_OFFLOAD:-1}" in
+            1) liveact_memory_args+=(--block_offload) ;;
+            0) ;;
+            *)
+                echo "VH_LIVEACT_BLOCK_OFFLOAD must be 0 or 1" >&2
+                return 1
+                ;;
+        esac
         cd "$LIVEACT_DIR"
         nohup env \
             VH_AUTODL_PROJECT_DIR="$PROJECT_DIR" \
@@ -108,9 +117,7 @@ start_services() {
             --wav2vec_dir "$WAV2VEC_DIR" \
             --size "${VH_LIVEACT_SIZE:-416*720}" \
             --port 5001 \
-            --fp8_kv_cache \
-            --block_offload \
-            --t5_cpu \
+            "${liveact_memory_args[@]}" \
             --video_save_path "$DATA_ROOT/liveact-generated" \
             >>"$DEMO_LOG" 2>&1 </dev/null &
         echo "$!" >"$DEMO_PID_FILE"
