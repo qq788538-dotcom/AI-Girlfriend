@@ -116,7 +116,7 @@ start_services() {
             "$PROJECT_DIR/deploy/autodl/liveact_demo_launcher.py" \
             --ckpt_dir "$MODEL_DIR" \
             --wav2vec_dir "$WAV2VEC_DIR" \
-            --size "${VH_LIVEACT_SIZE:-416*720}" \
+            --size "${VH_LIVEACT_SIZE:-512*512}" \
             --port 5001 \
             "${liveact_memory_args[@]}" \
             --video_save_path "$DATA_ROOT/liveact-generated" \

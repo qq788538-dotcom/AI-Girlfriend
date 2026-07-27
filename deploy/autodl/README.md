@@ -80,7 +80,7 @@ rendezvous port. The protocol wrapper also remains loopback-only on
 
 The control script defaults to the validated safe profile: PyTorch SDPA,
 T5/reference conditioning caches, exact tail-frame generation, LightVAE
-decode compilation disabled, the official 416x720 canvas
+decode compilation disabled, the official 512x512 canvas
 (`VH_LIVEACT_SIZE`), and PyTorch expandable CUDA allocator segments.
 An installed SageAttention candidate is only enabled explicitly with
 `VH_LIVEACT_FORCE_SDPA=0`; setting it back to `1` masks both FlashAttention
