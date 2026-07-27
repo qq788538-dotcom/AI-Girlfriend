@@ -11,7 +11,7 @@
 
 - SoulX-LiveAct 官方项目与论文的 20 FPS 实时口径使用两张 H100/H200，并结合端到端
   FP8、序列并行与通信计算并行；不能把这个数字当作单卡 PRO 6000 的验收线。
-- 社区模型卡报告：18B 模型在单张 RTX 5090、FP8 KV cache 与 CPU block offload
+- 官方项目报告：18B 模型在单张 RTX 5090、FP8 KV cache 与 CPU block offload
   下约 6 FPS。
 - 官方 5090 参数为 416×720、FP8 KV cache、block offload、T5 CPU 和
   `USE_CHANNELS_LAST_3D=1`。
@@ -22,8 +22,10 @@
 来源：
 
 - https://huggingface.co/xmuhtt/LiveAct
+- https://github.com/Soul-AILab/SoulX-LiveAct
 - https://arxiv.org/abs/2603.11746
 - https://github.com/thu-ml/SageAttention
+- https://docs.pytorch.org/tutorials/recipes/torch_compile_caching_configuration_tutorial.html
 
 ## 基线：2026-07-27
 
@@ -90,11 +92,56 @@ PSNR、SSIM、VMAF/LPIPS 仅作为相对诊断：量化注意力可能产生不�
 | E03 | 内容哈希隔离的 reference CLIP/VAE latent 缓存 | 热态首画面减少约 0.8 秒 | GPU 常驻内存、跨人物污染 | 冷/热三次 E2E 通过 |
 | E04 | renderer 全局单任务队列 | 消除 429 和无响应 | 排队延迟 | 单元测试通过，待并发 E2E |
 | E05 | 持续会话与增量音频 | TTS 与动画重叠 | 上游 demo API 改造 | 待测 |
-| E06 | 轻微降分辨率/帧率/量化 | 像素吞吐提升 | 清晰度、口型质量 | 待测 |
+| E06 | 降分辨率/帧率或更低精度量化 | 像素吞吐提升 | 直接降低画质或运动质量 | 质量优先策略拒绝 |
 | E07 | 关闭不稳定 VAE compile；精确生成并裁剪尾块 | 消除数分钟卡死并保留完整尾音 | 最终块仍有完整块计算成本 | 冷/热端到端通过 |
 | E08 | 关闭 block offload，18B 去噪器常驻显存 | 消除逐层 CPU/GPU 搬运 | 仅适合大显存 GPU | PRO 6000 端到端通过 |
+| E09 | 512×512 LightVAE static compile | 减少 VAE 解码时间 | 冷编译、编译数值差异 | 热态性能与质量门通过 |
+| E10 | 持久 TorchInductor/FX/Mega-Cache | 缩短进程重启预热 | Sage graph break、额外磁盘 | 未改善，停止上线 |
 
 ## 实验记录
+
+### E09-A/B：512×512 LightVAE static compile
+
+固定输入为同一头像、同一种子和同一 5.000 秒 PCM 音频，规格锁定
+512×512、20 FPS、100 帧。A 为仅关闭 LightVAE decode compile，B 为
+`VH_LIVEACT_VAE_COMPILE_MODE=static`；去噪器、SageAttention2、FP8 GEMM/KV、
+提示词和 reference cache 均保持不变。
+
+| 指标 | compile off | static 热态 | static 增益 |
+| --- | ---: | ---: | ---: |
+| 首个流输出 | 2887.47 ms | 2657.16 ms | 7.98% |
+| 渲染完成 | 14335.24 ms | 13642.39 ms | 4.83% |
+| 输出 | 512×512 / 20 FPS / 100 帧 | 同左 | 无规格变化 |
+
+质量门：
+
+- 两份视频和音频均为 5.000 秒，A/V 时长漂移 0 ms；
+- 全部 100 帧可解码，最大时间戳间隔 50 ms，无黑帧、冻结或持续纹理熵坍塌；
+- decoded-frame PSNR 39.471 dB、SSIM 0.967721；逐帧双栏检查未见身份、
+  口型、牙齿、手部或清晰度退化；
+- 两份 AAC 解码后的 PCM SHA256 完全一致；
+- 同一口部 ROI 的最佳时移均为 3 帧，口部运动均值和 p95 差异分别约
+  1.4% 和 1.0%，没有出现 compile 导致的动作停滞。
+
+结论：static compile 不改模型输入、采样、分辨率、帧率或输出帧数，热态总耗时缩短
+约 4.8%，通过当前等质量门槛。第一次静态图编译仍是冷启动成本，不能把冷态
+26 秒样本计入热态吞吐。
+
+### E10-A1/A2：持久 TorchInductor/FX graph cache（未改善）
+
+PyTorch 官方说明 FX graph cache 可以跨进程复用相同图、相同形状和相同配置的编译产物；
+`TORCHINDUCTOR_CACHE_DIR` 控制持久目录，未单独设置时 Triton cache 也放在其子目录。
+部署把 LiveAct cache 固定到 `/root/.cache/torchinductor-liveact`，显式启用
+`TORCHINDUCTOR_FX_GRAPH_CACHE=1`，不占只剩约 13 GB 的 AutoDL 数据盘。
+
+- 从临时目录迁入后缓存约 745 MB；
+- 第一次在新目录完整预热 255 秒，第二次相同配置重启为 285 秒，未显示缓存收益；
+- 重启脚本现在自行加载并 export `deploy/autodl/runtime.env`，避免人工执行时静默退回
+  SDPA、block offload 或错误尺寸；
+- 进一步生成了 99 MB `torch.compiler.save_cache_artifacts()` 工件并完成加载冒烟，
+  但启动过程仍进入同一组 Sage 自定义算子 graph break 和 Dynamo 编译路径；
+- 按“只有第二次进程重启实际变快才算命中”的规则，Mega-Cache 不进入默认部署。
+  普通 cache 目录仍用于集中管理静态 VAE/Inductor 临时产物，不宣称它缩短冷启动。
 
 ### E00-B0：首次固定输入基线（无效样本）
 

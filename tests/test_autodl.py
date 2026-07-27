@@ -63,7 +63,11 @@ def test_liveact_defaults_to_native_flash_attention_with_sdpa_fallback() -> None
     assert 'VH_LIVEACT_CACHE_T5="${VH_LIVEACT_CACHE_T5:-1}"' in control
     assert 'VH_LIVEACT_CACHE_REFERENCE="${VH_LIVEACT_CACHE_REFERENCE:-1}"' in control
     assert "VH_LIVEACT_WARMUP_REFERENCE=" in control
-    assert 'VH_LIVEACT_VAE_COMPILE_MODE="${VH_LIVEACT_VAE_COMPILE_MODE:-off}"' in control
+    assert 'VH_LIVEACT_VAE_COMPILE_MODE="${VH_LIVEACT_VAE_COMPILE_MODE:-static}"' in control
+    assert 'TORCHINDUCTOR_CACHE_DIR="$COMPILE_CACHE_DIR"' in control
+    assert "TORCHINDUCTOR_FX_GRAPH_CACHE=1" in control
+    assert 'RUNTIME_ENV="$SCRIPT_DIR/runtime.env"' in control
+    assert '. "$RUNTIME_ENV"' in control
     assert 'VH_LIVEACT_FIX_TAIL_FRAMES="${VH_LIVEACT_FIX_TAIL_FRAMES:-1}"' in control
     assert 'case "${VH_LIVEACT_BLOCK_OFFLOAD:-1}" in' in control
     assert "liveact_memory_args+=(--block_offload)" in control

@@ -3,6 +3,13 @@ set -euo pipefail
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
 SELF="$SCRIPT_DIR/$(basename "$0")"
+RUNTIME_ENV="$SCRIPT_DIR/runtime.env"
+if test -f "$RUNTIME_ENV"; then
+    set -a
+    # shellcheck disable=SC1090
+    . "$RUNTIME_ENV"
+    set +a
+fi
 PROJECT_DIR="${VH_AUTODL_PROJECT_DIR:-/root/AI-Girlfriend}"
 DATA_ROOT="${VH_AUTODL_DATA_ROOT:-/root/autodl-tmp}"
 LIVEACT_DIR="$PROJECT_DIR/vendor/SoulX-LiveAct"
@@ -10,6 +17,7 @@ LIVEACT_VENV="$PROJECT_DIR/.venv-liveact"
 MODEL_DIR="$DATA_ROOT/models/LiveAct"
 WAV2VEC_DIR="$DATA_ROOT/models/chinese-wav2vec2-base"
 RUNTIME_DIR="$DATA_ROOT/liveact-runtime"
+COMPILE_CACHE_DIR="${VH_LIVEACT_COMPILE_CACHE_DIR:-/root/.cache/torchinductor-liveact}"
 DEMO_PID_FILE="$RUNTIME_DIR/demo.pid"
 WRAPPER_PID_FILE="$RUNTIME_DIR/wrapper.pid"
 SUPERVISOR_PID_FILE="$RUNTIME_DIR/supervisor.pid"
@@ -18,7 +26,7 @@ WRAPPER_LOG="$RUNTIME_DIR/wrapper.log"
 SUPERVISOR_LOG="$RUNTIME_DIR/supervisor.log"
 LIVEACT_PROMPT="${VH_LIVEACT_PROMPT:-A beautiful woman is speaking naturally, subtle expression, eye contact, realistic movement.}"
 
-mkdir -p "$RUNTIME_DIR" "$DATA_ROOT/liveact-generated"
+mkdir -p "$RUNTIME_DIR" "$DATA_ROOT/liveact-generated" "$COMPILE_CACHE_DIR"
 
 pid_is_alive() {
     local pid_file="$1"
@@ -106,10 +114,12 @@ start_services() {
             VH_LIVEACT_CACHE_REFERENCE="${VH_LIVEACT_CACHE_REFERENCE:-1}" \
             VH_LIVEACT_REFERENCE_CACHE_ENTRIES="${VH_LIVEACT_REFERENCE_CACHE_ENTRIES:-4}" \
             VH_LIVEACT_WARMUP_REFERENCE="${VH_LIVEACT_WARMUP_REFERENCE:-$PROJECT_DIR/public/avatar-ai-girlfriend-v6.png}" \
-            VH_LIVEACT_VAE_COMPILE_MODE="${VH_LIVEACT_VAE_COMPILE_MODE:-off}" \
+            VH_LIVEACT_VAE_COMPILE_MODE="${VH_LIVEACT_VAE_COMPILE_MODE:-static}" \
             VH_LIVEACT_FIX_TAIL_FRAMES="${VH_LIVEACT_FIX_TAIL_FRAMES:-1}" \
             VH_LIVEACT_WARMUP_PROMPT="$LIVEACT_PROMPT" \
             PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}" \
+            TORCHINDUCTOR_CACHE_DIR="$COMPILE_CACHE_DIR" \
+            TORCHINDUCTOR_FX_GRAPH_CACHE=1 \
             USE_CHANNELS_LAST_3D=1 \
             CUDA_VISIBLE_DEVICES=0 \
             "$LIVEACT_VENV/bin/python" \

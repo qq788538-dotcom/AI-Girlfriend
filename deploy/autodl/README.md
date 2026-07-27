@@ -15,6 +15,15 @@ AutoDL maps container port 6006 to the instance HTTPS custom-service domain.
 Only 6006 is public; every model, memory, and renderer service is loopback-only.
 Silero VAD v6.2 runs locally in the browser so silence is not uploaded.
 
+## Locked best-value profile
+
+The cost/performance deployment stays on one RTX PRO 6000: Qwen3-4B-AWQ for
+dialogue and memory extraction, local Qwen3 ASR/embedding, local Higgs TTS,
+and SoulX-LiveAct at 512x512/20 FPS with resident weights, SageAttention2,
+cached conditioning, and static LightVAE decode compilation. It does not use
+FP4/SageAttention3, sparse attention, lower resolution, lower frame rate, or a
+second GPU. `runtime.env` and `env.example` carry the same reproducible profile.
+
 ## Provision
 
 Use an AutoDL Pro instance with one RTX PRO 6000 Blackwell 96 GB, CUDA 12.8,
@@ -78,18 +87,29 @@ listener to `127.0.0.1:5001`. On one GPU it runs directly without a distributed
 rendezvous port. The protocol wrapper also remains loopback-only on
 `127.0.0.1:8772`.
 
-The control script defaults to the validated safe profile: PyTorch SDPA,
-T5/reference conditioning caches, exact tail-frame generation, LightVAE
-decode compilation disabled, the official 512x512 canvas
-(`VH_LIVEACT_SIZE`), and PyTorch expandable CUDA allocator segments.
-An installed SageAttention candidate is only enabled explicitly with
+The control script defaults to the validated safe profile: T5/reference
+conditioning caches, exact tail-frame generation, static LightVAE decode
+compilation, the official 512x512 canvas (`VH_LIVEACT_SIZE`), persistent
+TorchInductor graph caching, and PyTorch expandable CUDA allocator segments.
+Static VAE compilation changes neither resolution nor generated frame count;
+its fixed-input A/B gate checks media continuity, decoded-frame PSNR/SSIM,
+audio identity, and mouth-motion timing before deployment.
+
+An installed SageAttention candidate is enabled explicitly with
 `VH_LIVEACT_FORCE_SDPA=0`; setting it back to `1` masks both FlashAttention
-and SageAttention and provides a complete rollback path.
+and SageAttention and provides a complete rollback path. The deployed
+precision-sensitive profile stays on SageAttention2 rather than the FP4
+SageAttention3 path.
 
 The PRO 6000 profile uses `VH_LIVEACT_BLOCK_OFFLOAD=0` and SageAttention because
 the measured resident path is faster and fits alongside the compact cloud
 speech stack. The rollback values are `VH_LIVEACT_BLOCK_OFFLOAD=1` and
 `VH_LIVEACT_FORCE_SDPA=1`.
+
+The first process start compiles the denoiser and LightVAE graphs. Compiled
+artifacts live in `/root/.cache/torchinductor-liveact`, so later restarts reuse
+the same-GPU cache. Normal inference performance begins after the production
+reference warm-up has completed.
 
 ```bash
 deploy/autodl/liveact-control.sh start
