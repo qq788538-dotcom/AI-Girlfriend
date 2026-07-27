@@ -82,7 +82,7 @@ PSNR、SSIM、VMAF/LPIPS 仅作为相对诊断：量化注意力可能产生不�
 
 | ID | 变量 | 预期收益 | 风险 | 状态 |
 | --- | --- | --- | --- | --- |
-| E01 | SDPA → SageAttention 2.2.0 | 补齐单 5090 稳态吞吐差距 | 量化误差、SM120 构建 | 进行中 |
+| E01 | SDPA → SageAttention 2.2.0 | 补齐单 5090 稳态吞吐差距 | 量化误差、额外显存 | SM120 wheel 与微基准通过，端到端待验 |
 | E02 | 缓存固定 T5 embedding | 首画面减少约 13.5 秒 | prompt key 失配 | 热态通过 |
 | E03 | 内容哈希隔离的 reference CLIP/VAE latent 缓存 | 热态首画面减少约 0.8 秒 | GPU 常驻内存、跨人物污染 | 冷/热三次 E2E 通过 |
 | E04 | renderer 全局单任务队列 | 消除 429 和无响应 | 排队延迟 | 单元测试通过，待并发 E2E |
@@ -104,6 +104,36 @@ PSNR、SSIM、VMAF/LPIPS 仅作为相对诊断：量化注意力可能产生不�
   shape 在 192/384 间变化；
 - 结论：这轮不进入 A/B 汇总。需要让 compile cache 落盘，随后相同输入热态重跑；
   E07 提升为高优先级，并分别记录冷编译时间与热态生成时间。
+
+### E01-K1：SageAttention 2.2.0 SM120 内核 A/B
+
+AutoDL cgroup 只有 90 GiB 上限，必须先停止 LiveAct，再用
+`EXT_PARALLEL=1 MAX_JOBS=1 NVCC_APPEND_FLAGS=--threads=2` 构建。官方源码
+`TORCH_CUDA_ARCH_LIST=12.0` 会为 `_qattn_sm80`、`_qattn_sm89` 和 `_fused`
+算法族生成 `sm_120` 代码；扩展名是算法族，不代表编错 GPU 架构。
+
+- 低并发构建用时约 11 分钟，内存约 13–16 GiB，`memory.events.high` 无增量；
+- wheel：
+  `sageattention-2.2.0-cp312-cp312-linux_x86_64.whl`；
+- wheel SHA256：
+  `eafb9dd39ce24908030c65c59ac5a631f197f787116e4e98784f0542a2204b56`；
+- 先安装到隔离 `--target`，RTX 5090 冒烟输出形状正确且全部为有限值，随后才安装
+  到生产 LiveAct venv；
+- `VH_LIVEACT_FORCE_SDPA=1` 会同时屏蔽 FlashAttention 与 SageAttention，
+  是安装 wheel 后的完整回滚闸门。
+
+相同随机种子、BF16、batch 1、40 heads、head dimension 128，3 次预热 + 5 次计时：
+
+| LiveAct 形状 | SDPA 中位数 | Sage 中位数 | 内核加速 | cosine | 相对 L2 | Sage 额外峰值 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| first 7020×7020 | 4.661 ms | 1.871 ms | 2.49× | 0.999247 | 3.88% | 239 MiB |
+| steady 9360×16380 | 15.080 ms | 5.546 ms | 2.72× | 0.999228 | 3.93% | 456 MiB |
+| image cross 9360×257 | 0.369 ms | 0.282 ms | 1.31× | 0.999337 | 3.64% | 142 MiB |
+| text cross 9360×512 | 0.546 ms | 0.341 ms | 1.60× | 0.999303 | 3.73% | 146 MiB |
+
+所有候选输出 `nan_count=0`、`inf_count=0`，SNR 为 28.1–28.8 dB。内核结果只证明
+速度与数值范围可接受；约 3.6–3.9% 相对 L2 是量化注意力的真实差异，仍必须通过
+同输入 MP4、A/V、黑屏/冻结和人工画面检查后才能保留。
 
 ### E02-A1/A2：T5 LRU 缓存与 VAE compile-off
 
