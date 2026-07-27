@@ -23,6 +23,9 @@ def test_autodl_control_runs_the_pro6000_cloud_stack() -> None:
     assert 'VH_CHAT_BACKEND:-}" != "omlx"' in control
     assert "VH_MEMORY_LOCAL_ONLY" in control
     assert "VLLM_USE_FLASHINFER_SAMPLER" in control
+    assert "allow_metadata_override: true" in (
+        ROOT / "scripts" / "run-openviking-memory.sh"
+    ).read_text(encoding="utf-8")
     assert "liveact-control.sh" in control
     assert "Qwen3-4B-AWQ" in control
     assert "run-xgc-asr.sh" in control

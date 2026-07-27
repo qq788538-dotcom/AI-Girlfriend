@@ -58,6 +58,7 @@ write_config() {
                     agfs: {backend: "local"}
                 },
                 embedding: {
+                    allow_metadata_override: true,
                     max_concurrent: 4,
                     max_retries: 1,
                     dense: {
