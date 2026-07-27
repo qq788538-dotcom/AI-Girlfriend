@@ -25,7 +25,7 @@ class OpenVikingMemory:
         api_key: str = "",
         timeout_seconds: float = 3.0,
         search_limit: int = 4,
-        score_threshold: float = 0.25,
+        score_threshold: float = 0.01,
         max_context_chars: int = 1800,
         agent_id: str = "virtual-girlfriend",
         transport: httpx.AsyncBaseTransport | None = None,

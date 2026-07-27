@@ -78,6 +78,7 @@ def test_openviking_memory_defaults_to_isolated_virtual_girlfriend_port() -> Non
     assert settings.memory_enabled is False
     assert settings.memory_base_url == "http://127.0.0.1:1934"
     assert settings.memory_agent_id == "virtual-girlfriend"
+    assert settings.memory_score_threshold == 0.01
     assert settings.memory_commit_every_turns == 1
 
 
