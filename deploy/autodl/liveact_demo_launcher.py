@@ -191,12 +191,15 @@ def _prepare_demo_path(demo_path: Path) -> Path:
         "                    chunk_bytes, num_frames_this_chunk = "
         "tensor_chunk_to_rgb_bytes(_videos)\n"
     )
+    warmup_anchor = '                        texts="A person is speaking naturally.",\n'
     if source.count(import_anchor) != 1:
         raise SystemExit("LiveAct tail fix could not find the import anchor")
     if source.count(count_anchor) != 1:
         raise SystemExit("LiveAct tail fix could not find the chunk-count anchor")
     if source.count(write_anchor) != 1:
         raise SystemExit("LiveAct tail fix could not find the chunk-write anchor")
+    if source.count(warmup_anchor) != 1:
+        raise SystemExit("LiveAct runtime patch could not find the warmup prompt")
 
     source = source.replace(import_anchor, import_anchor + "import math\n", 1)
     source = source.replace(
@@ -224,6 +227,16 @@ def _prepare_demo_path(demo_path: Path) -> Path:
             "                    _videos = _videos[:, :, :frames_remaining]\n"
             + write_anchor
             + "                    generated_frames += num_frames_this_chunk\n"
+        ),
+        1,
+    )
+    source = source.replace(
+        warmup_anchor,
+        (
+            "                        texts=os.environ.get(\n"
+            '                            "VH_LIVEACT_WARMUP_PROMPT",\n'
+            '                            "A person is speaking naturally.",\n'
+            "                        ),\n"
         ),
         1,
     )

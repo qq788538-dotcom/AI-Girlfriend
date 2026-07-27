@@ -124,6 +124,7 @@ def test_tail_frame_fix_builds_same_directory_runtime_copy(
     demo_path.write_text(
         "import argparse\n"
         "def generate(self, audio_len_sec, fps):\n"
+        '                        texts="A person is speaking naturally.",\n'
         "            iter_total_num = int(audio_len_sec / "
         "(self.vae_stride[0] * self.blksz_lst[-1] / fps)) + 1\n"
         "            pre_latent = None\n"
@@ -142,4 +143,5 @@ def test_tail_frame_fix_builds_same_directory_runtime_copy(
     assert "target_total_frames = math.ceil(audio_len_sec * fps)" in patched
     assert "_videos = _videos[:, :, :frames_remaining]" in patched
     assert "generated_frames += num_frames_this_chunk" in patched
+    assert '"VH_LIVEACT_WARMUP_PROMPT"' in patched
     assert demo_path.read_text(encoding="utf-8").startswith("import argparse\n")

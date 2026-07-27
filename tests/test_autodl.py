@@ -37,6 +37,8 @@ def test_liveact_defaults_to_native_flash_attention_with_sdpa_fallback() -> None
     assert 'VH_LIVEACT_CACHE_T5="${VH_LIVEACT_CACHE_T5:-0}"' in control
     assert 'VH_LIVEACT_VAE_COMPILE_MODE="${VH_LIVEACT_VAE_COMPILE_MODE:-static}"' in control
     assert 'VH_LIVEACT_FIX_TAIL_FRAMES="${VH_LIVEACT_FIX_TAIL_FRAMES:-0}"' in control
+    assert 'VH_LIVEACT_WARMUP_PROMPT="$LIVEACT_PROMPT"' in control
+    assert 'VH_LIVEACT_PROMPT="$LIVEACT_PROMPT"' in control
     assert "_install_t5_cache()" in launcher
     assert "_install_vae_compile_policy()" in launcher
     assert "_prepare_demo_path(demo_path)" in launcher

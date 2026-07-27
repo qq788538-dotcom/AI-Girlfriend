@@ -16,6 +16,7 @@ SUPERVISOR_PID_FILE="$RUNTIME_DIR/supervisor.pid"
 DEMO_LOG="$RUNTIME_DIR/demo.log"
 WRAPPER_LOG="$RUNTIME_DIR/wrapper.log"
 SUPERVISOR_LOG="$RUNTIME_DIR/supervisor.log"
+LIVEACT_PROMPT="${VH_LIVEACT_PROMPT:-A beautiful woman is speaking naturally, subtle expression, eye contact, realistic movement.}"
 
 mkdir -p "$RUNTIME_DIR" "$DATA_ROOT/liveact-generated"
 
@@ -64,6 +65,7 @@ start_wrapper() {
         VH_RENDERER_BACKEND=liveact-official \
         VH_RENDERER_RUNTIME_DIR="$DATA_ROOT/liveact-renderer" \
         VH_LIVEACT_DEMO_URL=http://127.0.0.1:5001 \
+        VH_LIVEACT_PROMPT="$LIVEACT_PROMPT" \
         VH_RENDERER_FPS=20 \
         "$PROJECT_DIR/.venv-gpu/bin/python" -m virtual_human.renderer_worker \
         >>"$WRAPPER_LOG" 2>&1 </dev/null &
@@ -93,6 +95,7 @@ start_services() {
             VH_LIVEACT_T5_CACHE_ENTRIES="${VH_LIVEACT_T5_CACHE_ENTRIES:-32}" \
             VH_LIVEACT_VAE_COMPILE_MODE="${VH_LIVEACT_VAE_COMPILE_MODE:-static}" \
             VH_LIVEACT_FIX_TAIL_FRAMES="${VH_LIVEACT_FIX_TAIL_FRAMES:-0}" \
+            VH_LIVEACT_WARMUP_PROMPT="$LIVEACT_PROMPT" \
             PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}" \
             USE_CHANNELS_LAST_3D=1 \
             CUDA_VISIBLE_DEVICES=0 \
