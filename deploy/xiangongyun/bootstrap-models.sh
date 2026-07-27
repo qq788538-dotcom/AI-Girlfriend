@@ -265,7 +265,7 @@ if [ "$memory_llm_enabled" = true ]; then
     download_modelscope_model \
         Qwen/Qwen3-4B-AWQ \
         "$models_dir/Qwen3-4B-AWQ" \
-        model.safetensors.index.json
+        model.safetensors
 fi
 download_modelscope_model \
     Qwen/Qwen3-ASR-0.6B \
