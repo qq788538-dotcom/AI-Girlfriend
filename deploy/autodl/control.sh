@@ -45,6 +45,9 @@ load_environment() {
     export HF_HUB_OFFLINE=1
     export TRANSFORMERS_OFFLINE=1
     export HF_DATASETS_OFFLINE=1
+    # FlashInfer 0.6.x mis-detects Blackwell SM 12.0 during sampler JIT.
+    # Keep FlashAttention/Marlin enabled and use vLLM's native sampler.
+    export VLLM_USE_FLASHINFER_SAMPLER="${VLLM_USE_FLASHINFER_SAMPLER:-0}"
     unset OPENAI_API_KEY VH_ARK_API_KEY VH_MEMORY_EMBEDDING_API_KEY
 }
 

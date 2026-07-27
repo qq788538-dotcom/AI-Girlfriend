@@ -22,6 +22,7 @@ def test_autodl_control_runs_the_pro6000_cloud_stack() -> None:
     assert "deploy/xiangongyun/control.sh" not in control
     assert 'VH_CHAT_BACKEND:-}" != "omlx"' in control
     assert "VH_MEMORY_LOCAL_ONLY" in control
+    assert "VLLM_USE_FLASHINFER_SAMPLER" in control
     assert "liveact-control.sh" in control
     assert "Qwen3-4B-AWQ" in control
     assert "run-xgc-asr.sh" in control
@@ -33,6 +34,7 @@ def test_autodl_control_runs_the_pro6000_cloud_stack() -> None:
     assert 'single = root / "model.safetensors"' in llm_runner
     assert 'index = root / "model.safetensors.index.json"' in llm_runner
     assert "VH_OMLX_CHAT_MODEL=Qwen3-4B-AWQ" in env
+    assert "VLLM_USE_FLASHINFER_SAMPLER=0" in env
     assert "VH_AVATAR_BACKEND=liveact-official" in env
     assert "VH_AVATAR_MEDIA_BASE_URL=http://127.0.0.1:8772" in env
     assert "VH_LIVEACT_BLOCK_OFFLOAD=0" in env
