@@ -9,6 +9,7 @@ import time
 import wave
 from pathlib import Path
 
+import httpx
 import websockets
 
 
@@ -56,6 +57,8 @@ async def benchmark(
     echo_injected = False
     echo_decision = ""
     echo_target_bytes = 24_000 * 2 * inject_output_echo_ms // 1000
+    avatar_stream_url = ""
+    avatar_video_url = ""
 
     async with websockets.connect(url, max_size=None, ping_timeout=180) as websocket:
         await websocket.send(
@@ -92,6 +95,7 @@ async def benchmark(
             nonlocal echo_injected, echo_decision
             nonlocal last_audio_arrival_ms, max_audio_arrival_gap_ms
             nonlocal simulated_playback_end_ms
+            nonlocal avatar_stream_url, avatar_video_url
             async for raw in websocket:
                 if isinstance(raw, bytes):
                     continue
@@ -176,6 +180,12 @@ async def benchmark(
                         media_bytes.extend(
                             base64.b64decode(event["data"], validate=True)
                         )
+                elif event_type == "avatar.stream.ready":
+                    timings.setdefault("avatar_stream_ready_ms", elapsed_ms)
+                    avatar_stream_url = str(event.get("url") or "")
+                elif event_type == "avatar.video.ready":
+                    timings.setdefault("avatar_video_ready_ms", elapsed_ms)
+                    avatar_video_url = str(event.get("url") or "")
                 elif event_type == "response.done":
                     timings.setdefault("response_done_ms", elapsed_ms)
                     response_done = True
@@ -200,9 +210,15 @@ async def benchmark(
         except asyncio.TimeoutError:
             pass
 
-    if output_media and media_bytes:
-        output_media.parent.mkdir(parents=True, exist_ok=True)
-        output_media.write_bytes(media_bytes)
+    if output_media:
+        if not media_bytes and avatar_video_url:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.get(avatar_video_url)
+                response.raise_for_status()
+            media_bytes.extend(response.content)
+        if media_bytes:
+            output_media.parent.mkdir(parents=True, exist_ok=True)
+            output_media.write_bytes(media_bytes)
     if output_audio and audio_bytes:
         output_audio.parent.mkdir(parents=True, exist_ok=True)
         with wave.open(str(output_audio), "wb") as wav_file:
@@ -232,6 +248,10 @@ async def benchmark(
             "max_simulated_underrun_ms": round(max(playback_underruns, default=0.0), 3),
         },
         "event_counts": event_counts,
+        "avatar": {
+            "stream_url": avatar_stream_url,
+            "video_url": avatar_video_url,
+        },
         "input_transcript": input_transcript,
         "transcript": transcript,
         "output_media": str(output_media) if output_media and media_bytes else "",

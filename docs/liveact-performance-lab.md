@@ -1,15 +1,18 @@
-# SoulX-LiveAct RTX 5090 性能实验知识库
+# SoulX-LiveAct 单卡性能实验知识库（RTX 5090 / RTX PRO 6000）
 
 ## 目标与原则
 
-目标是在单张 RTX 5090 32 GB 上显著缩短“语音结束到浏览器首个可播放画面”的时间，同时保持
-人物身份、画面连续性、口型同步和音质不变，或只接受可量化的轻微质量下降。所有结论必须来自
-同一人物、同一音频、同一种子和同一输出规格的 A/B，不用不同输入之间的主观印象代替证据。
+目标是在单张消费级或工作站级 Blackwell GPU 上显著缩短“语音结束到浏览器首个可播放画面”
+的时间，同时保持人物身份、画面连续性、口型同步和音质不变，或只接受可量化的轻微质量下降。
+所有结论必须来自同一人物、同一音频、同一种子和同一输出规格的 A/B，不用不同输入之间的
+主观印象代替证据；不同 GPU 的结果必须分别建立基线，不能横向混用。
 
 ## 官方口径
 
-- SoulX-LiveAct 官方模型卡报告：18B 模型在单张 RTX 5090、FP8 KV cache 与 CPU block
-  offload 下约 6 FPS；20 FPS 实时口径使用两张 H100/H200。
+- SoulX-LiveAct 官方项目与论文的 20 FPS 实时口径使用两张 H100/H200，并结合端到端
+  FP8、序列并行与通信计算并行；不能把这个数字当作单卡 PRO 6000 的验收线。
+- 社区模型卡报告：18B 模型在单张 RTX 5090、FP8 KV cache 与 CPU block offload
+  下约 6 FPS。
 - 官方 5090 参数为 416×720、FP8 KV cache、block offload、T5 CPU 和
   `USE_CHANNELS_LAST_3D=1`。
 - 官方安装流程要求 SageAttention 2.2.0；SageAttention 官方仓库报告 RTX 5090
@@ -82,13 +85,14 @@ PSNR、SSIM、VMAF/LPIPS 仅作为相对诊断：量化注意力可能产生不�
 
 | ID | 变量 | 预期收益 | 风险 | 状态 |
 | --- | --- | --- | --- | --- |
-| E01 | SDPA → SageAttention 2.2.0 | 补齐单 5090 稳态吞吐差距 | 量化误差、额外显存 | SM120 wheel 与微基准通过，端到端待验 |
+| E01 | SDPA → SageAttention 2.2.0 | 提升长序列注意力与稳态吞吐 | 量化误差、额外显存、冷启动编译 | PRO 6000 端到端通过 |
 | E02 | 缓存固定 T5 embedding | 首画面减少约 13.5 秒 | prompt key 失配 | 热态通过 |
 | E03 | 内容哈希隔离的 reference CLIP/VAE latent 缓存 | 热态首画面减少约 0.8 秒 | GPU 常驻内存、跨人物污染 | 冷/热三次 E2E 通过 |
 | E04 | renderer 全局单任务队列 | 消除 429 和无响应 | 排队延迟 | 单元测试通过，待并发 E2E |
 | E05 | 持续会话与增量音频 | TTS 与动画重叠 | 上游 demo API 改造 | 待测 |
 | E06 | 轻微降分辨率/帧率/量化 | 像素吞吐提升 | 清晰度、口型质量 | 待测 |
 | E07 | 关闭不稳定 VAE compile；精确生成并裁剪尾块 | 消除数分钟卡死并保留完整尾音 | 最终块仍有完整块计算成本 | 冷/热端到端通过 |
+| E08 | 关闭 block offload，18B 去噪器常驻显存 | 消除逐层 CPU/GPU 搬运 | 仅适合大显存 GPU | PRO 6000 端到端通过 |
 
 ## 实验记录
 
@@ -134,6 +138,77 @@ AutoDL cgroup 只有 90 GiB 上限，必须先停止 LiveAct，再用
 所有候选输出 `nan_count=0`、`inf_count=0`，SNR 为 28.1–28.8 dB。内核结果只证明
 速度与数值范围可接受；约 3.6–3.9% 相对 L2 是量化注意力的真实差异，仍必须通过
 同输入 MP4、A/V、黑屏/冻结和人工画面检查后才能保留。
+
+### E01-K2：RTX PRO 6000 SageAttention 微基准与完整视频
+
+新实例为 NVIDIA RTX PRO 6000 Blackwell Server Edition 96 GB，驱动
+590.44.01，PyTorch 2.8.0+cu128，计算能力 12.0。复用同一份已校验 SM120 wheel，
+但重新建立该硬件的 A/B；不能套用 RTX 5090 的 2.5–2.7× 内核数字。
+
+| LiveAct 形状 | SDPA 中位数 | Sage 中位数 | 内核加速 | cosine | 相对 L2 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| first 7020×7020 | 3.100 ms | 2.003 ms | 1.55× | 0.999254 | 3.86% |
+| steady 9360×16380 | 9.069 ms | 5.661 ms | 1.60× | 0.999233 | 3.92% |
+| image cross 9360×257 | 0.281 ms | 0.291 ms | 0.97× | 0.999334 | 3.65% |
+| text cross 9360×512 | 0.400 ms | 0.363 ms | 1.10× | 0.999312 | 3.71% |
+
+所有形状仍为 3 次预热 + 5 次计时，输出无 NaN/Inf。PRO 6000 的短 cross
+attention 已接近调度开销，Sage 不能全部加速，因此端到端收益明显小于主 self-attention
+微基准。
+
+在 `VH_LIVEACT_BLOCK_OFFLOAD=0`、固定种子、同一 7.995375 秒音频和同一头像下：
+
+| 指标 | 常驻 SDPA 热态中位数 | 常驻 Sage 热态中位数 | Sage 增益 |
+| --- | ---: | ---: | ---: |
+| HLS 首输出 | 3.675 s | 3.462 s | 5.8% |
+| 最终 8 秒视频 | 28.370 s | 26.189 s | 7.7% |
+| 第一块 | 21 帧 / 3.062 s | 21 帧 / 2.913 s | 5.1% |
+| 完整稳态块 | 32 帧 / 4.94–5.02 s | 32 帧 / 4.44–4.60 s | 约 8% |
+| 模型预热 | 81.867 s | 104.098 s | 慢 27.2% |
+
+质量与稳定性：
+
+- Sage 三次 MP4 SHA256 完全一致，重复运行具有确定性；
+- 160 帧、20 FPS，视频 8.000 秒、音频 7.995375 秒，A/V 漂移 4.625 ms；
+- 最大帧时间戳间隔 50 ms，无黑屏、冻结、静音、解码错误或持续熵坍塌；
+- 相对常驻 SDPA 为 SSIM 0.9580、PSNR 37.08 dB；每秒双栏 contact sheet
+  未见身份漂移、嘴部破坏或明显清晰度下降；
+- 空闲显存约 50.3 GiB，cgroup 无 `high`、OOM 或 OOM kill 事件。
+
+结论：Sage 是这台 PRO 6000 可接受的“轻微数值差异换取约 8% 热态吞吐”的候选，
+但会增加约 22 秒冷预热，而且官方 wheel 的 Torch Dynamo 算子仍产生 graph break。
+精度优先时设置 `VH_LIVEACT_FORCE_SDPA=1` 即完整回滚。
+
+### E08-A/B：RTX PRO 6000 关闭 block offload
+
+这项只改变权重驻留位置，不改变分辨率、帧率、采样步数、随机种子或精度。安全默认值仍为
+`VH_LIVEACT_BLOCK_OFFLOAD=1`，避免 32 GB 卡 OOM；96 GB PRO 6000 候选使用
+`VH_LIVEACT_BLOCK_OFFLOAD=0`。
+
+| 指标 | block offload 开 | block offload 关 | 常驻增益 |
+| --- | ---: | ---: | ---: |
+| 模型预热 | 128.595 s | 81.867 s | 36.3% |
+| 热态 HLS 首输出 | 4.660 s | 3.675 s | 21.1% |
+| 热态最终 8 秒视频 | 32.879 s | 28.370 s | 13.7% |
+| 热态第一块 | 约 5.04 FPS | 约 6.86 FPS | 36.1% |
+| 热态完整稳态块 | 约 5.6 FPS | 约 6.4 FPS | 约 14% |
+| 空闲显存 | 33.2 GiB | 49.6–50.3 GiB | +16.4–17.1 GiB |
+
+三次常驻 SDPA 输出 SHA256 完全一致。与 offload 基线比较为 SSIM 0.9619、
+PSNR 38.05 dB；差异来自执行/舍入路径而非随机漂移。三次连续性门槛全部通过：
+160 帧、20 FPS、A/V 漂移 4.625 ms、最大时间戳间隔 50 ms，无黑屏、冻结、静音或
+解码错误。GPU 尚余约 47 GiB，系统 cgroup 无内存压力事件。
+
+结论：对 96 GB 单卡，关闭 block offload 是当前收益最大且质量风险最低的优化；对
+32 GB 卡必须保留默认 offload。组合“常驻 + Sage”相对初始 offload + SDPA 热态基线：
+
+- HLS 首输出从 4.660 秒降到 3.462 秒，缩短 25.7%；
+- 完整 8 秒视频从 32.879 秒降到 26.189 秒，缩短 20.3%；
+- 第一块约 7.2 FPS、稳态块约 7.0 FPS。
+
+这仍未达到官方两张 H100/H200 + 序列并行的 20 FPS 口径。当前单卡上游
+full-audio adapter 必须等 TTS 完成后才开始渲染，真正的大幅首播优化需要 E05
+增量音频/持久会话，而不是继续压榨已经很短的 prompt/reference 初始化。
 
 ### E02-A1/A2：T5 LRU 缓存与 VAE compile-off
 
@@ -223,6 +298,40 @@ AutoDL cgroup 只有 90 GiB 上限，必须先停止 LiveAct，再用
 - A1 第三块偶发 10.994 秒，A2 未复现；A2 所有完整稳态块为 6.75–7.04 秒。
   暂判为冷态一次性抖动，后续以至少三次热态样本监控。
 
+### 生产全链路与浏览器验收：PRO 6000 常驻 + Sage
+
+输入为固定 24 kHz 单声道 PCM16 中文测试语音，走真实
+`ws://127.0.0.1:8765/v1/realtime`，记忆显式关闭以避免自动实验污染用户记忆。
+链路包含 Qwen3 ASR、本地 Qwen3.6 LLM、Higgs Audio v3 TTS、LiveAct renderer
+WebSocket、HLS 和最终 MP4。
+
+第二次热态端到端：
+
+| 时间点（相对开始） | 时间 |
+| --- | ---: |
+| ASR 完整转写 | 0.675 s |
+| LLM 文本完成 | 1.159 s |
+| 首段 TTS 音频 | 2.737 s |
+| TTS 回答完成 | 4.810 s |
+| `avatar.stream.ready` / HLS 可播 | 8.403 s |
+| 最终 MP4 与 `avatar.render.done` | 21.883 s |
+
+ASR 转写与测试原文完全一致。HLS 清单通过本机 SSH 媒体隧道返回，目标时长 1 秒并包含
+独立分片；最终 MP4 可由 Chromium 原生解码并自动播放。输出为 416×720、20 FPS、
+107 帧，视频 5.350 秒、音频 5.340 秒，A/V 漂移 10 ms；无黑屏、冻结、静音、
+时间戳缺口或解码错误。
+
+浏览器“大脸裁剪”来自视频继承了封面图的 `object-fit: cover`。修复后视频的计算样式为
+`object-fit: contain; object-position: center`，在 742×720 播放容器内完整显示
+416×720 竖幅，左右使用深色留白；静态待机图仍可保留封面构图。页面重新连接后状态为
+“会话已就绪 / 云端已连”。
+
+本地必须同时保留：
+
+- WebSocket/媒体主隧道：本机 8771 → 云端 `127.0.0.1:8772`；
+- 若 renderer 返回 8772 public base URL，还需同端口媒体隧道；当前运行配置已返回
+  `http://127.0.0.1:8771/...`，基准脚本会记录实际 HLS/MP4 URL，避免靠猜测排障。
+
 ### 环境约束：内存高水位
 
 - AutoDL cgroup：`memory.high=86 GiB`、`memory.max=90 GiB`，不是宿主机
@@ -252,6 +361,21 @@ virtual-human-benchmark-renderer \
   --audio runtime/benchmarks/liveact-ab-input.wav \
   --output runtime/benchmarks/liveact-ab-output.mp4
 ```
+
+完整 ASR→LLM→TTS→LiveAct 网关基准（默认不写真实记忆）：
+
+```bash
+python scripts/benchmark-gateway.py \
+  --url ws://127.0.0.1:8765/v1/realtime \
+  --audio runtime/benchmarks/liveact-ab-input.wav \
+  --output-audio runtime/benchmarks/liveact-e2e.wav \
+  --output-media runtime/benchmarks/liveact-e2e.mp4 \
+  --timeout 300
+```
+
+结果会分别记录 `avatar_stream_ready_ms`、`avatar_video_ready_ms` 和最终
+`render_done_ms`，并保存 renderer 实际返回的 HLS/MP4 URL。只有显式添加
+`--with-memory` 才允许实验读写真实记忆。
 
 真实 LiveAct 形状的注意力 A/B：
 
